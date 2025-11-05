@@ -48,6 +48,15 @@ export const AuthProvider = ({ children }) => {
   const authContext = {
     state,
     signIn: async (email, password) => {
+      // Test account bypass
+      if (email.toLowerCase() === 'test' && password === 'test') {
+        const testToken = 'test-token-123';
+        const testUser = { name: 'Test User', email: 'test@test.com' };
+        await AsyncStorage.setItem('userToken', testToken);
+        dispatch({ type: 'SIGN_IN', token: testToken, user: testUser });
+        return { token: testToken, user: testUser };
+      }
+      
       const res = await api.login(email, password);
       if (res?.token) {
         await AsyncStorage.setItem('userToken', res.token);
