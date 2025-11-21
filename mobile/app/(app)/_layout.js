@@ -5,7 +5,7 @@ import { LanguageContext } from '../../src/context/LanguageContext';
 
 export default function AppLayout() {
   const { state } = useContext(AuthContext);
-  const { t } = useContext(LanguageContext);
+  const { t, isRTL } = useContext(LanguageContext);
 
   if (!state.userToken) {
     return <Redirect href="/(auth)/login" />;
@@ -16,50 +16,76 @@ export default function AppLayout() {
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: '#0f5132',
-          borderTopWidth: 0,
+          backgroundColor: '#ffffff',
+          borderTopWidth: 1,
+          borderTopColor: '#e2e8f0',
           position: 'absolute',
-          bottom: 16,
-          left: 16,
-          right: 16,
-          borderRadius: 24,
+          bottom: 0,
+          left: 0,
+          right: 0,
           paddingVertical: 10,
-          height: 60,
+          height: 70,
+          paddingBottom: 20,
+          flexDirection: isRTL ? 'row-reverse' : 'row',
         },
-        tabBarActiveTintColor: '#ffffff',
-        tabBarInactiveTintColor: '#c9e9d9',
+        tabBarActiveTintColor: '#3b82f6',
+        tabBarInactiveTintColor: '#94a3b8',
         tabBarLabelStyle: {
           fontSize: 12,
           fontWeight: '600',
+          textAlign: 'center',
         },
       }}
     >
       <Tabs.Screen
         name="home"
         options={{
-          title: t('home'),
+          title: t('home') || 'Home',
           tabBarIcon: () => null,
         }}
       />
       <Tabs.Screen
         name="wallet"
         options={{
-          title: t('wallet'),
+          title: t('wallet') || 'Wallet',
           tabBarIcon: () => null,
         }}
       />
       <Tabs.Screen
-        name="transactions"
+        name="settings"
         options={{
-          title: t('transactions'),
+          title: t('settings'),
           tabBarIcon: () => null,
         }}
       />
       <Tabs.Screen
-        name="profile"
+        name="add-money"
         options={{
-          title: t('profile'),
-          tabBarIcon: () => null,
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="withdraw"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="new-transaction"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="transaction-details"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="messages"
+        options={{
+          href: null,
         }}
       />
     </Tabs>

@@ -40,11 +40,18 @@ export default function GettingStartedScreen() {
     }
   };
 
+  const handlePrevious = () => {
+    if (currentPage > 0) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
   const handleGetStarted = () => {
     router.replace('/(auth)/login');
   };
 
   const isLastPage = currentPage === onboardingData.length - 1;
+  const isFirstPage = currentPage === 0;
 
   return (
     <View style={styles.container}>
@@ -186,12 +193,22 @@ export default function GettingStartedScreen() {
           ))}
         </View>
 
-        {/* Next/Get Started Button */}
-        <TouchableOpacity style={styles.getStartedButton} onPress={handleNext}>
-          <Text style={styles.getStartedText}>
-            {isLastPage ? t('getStarted') : t('next')}
-          </Text>
-        </TouchableOpacity>
+        {/* Navigation Buttons */}
+        <View style={[styles.navigationButtons, isRTL && styles.navigationButtonsRTL]}>
+          {!isFirstPage && (
+            <TouchableOpacity style={styles.backButton} onPress={handlePrevious}>
+              <Text style={styles.backButtonText}>{isRTL ? '›' : '‹'}</Text>
+            </TouchableOpacity>
+          )}
+          <TouchableOpacity 
+            style={[styles.getStartedButton, !isFirstPage && styles.getStartedButtonWithBack]} 
+            onPress={handleNext}
+          >
+            <Text style={styles.getStartedText}>
+              {isLastPage ? t('getStarted') : t('next')}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Language Selection Modal */}
@@ -590,7 +607,31 @@ const styles = StyleSheet.create({
     width: 24,
     backgroundColor: '#1e40af',
   },
+  navigationButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    alignItems: 'center',
+  },
+  navigationButtonsRTL: {
+    flexDirection: 'row-reverse',
+  },
+  backButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 12,
+    backgroundColor: '#f1f5f9',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  backButtonText: {
+    fontSize: 24,
+    color: '#1e40af',
+    fontWeight: 'bold',
+  },
   getStartedButton: {
+    flex: 1,
     backgroundColor: '#1e40af',
     paddingVertical: 16,
     borderRadius: 12,
@@ -600,6 +641,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
+  },
+  getStartedButtonWithBack: {
+    flex: 1,
   },
   getStartedText: {
     color: '#ffffff',

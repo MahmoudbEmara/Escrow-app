@@ -1,0 +1,594 @@
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
+import { StatusBar } from 'react-native';
+import { useRouter } from 'expo-router';
+
+export default function NewTransactionScreen() {
+  const router = useRouter();
+  const [formData, setFormData] = useState({
+    title: '',
+    role: '',
+    userId: '',
+    userName: '',
+    amount: '',
+    terms: '',
+    category: '',
+    feesResponsibility: '',
+    confirmed: false,
+    deliveryDate: '',
+  });
+
+  const [showSummary, setShowSummary] = useState(false);
+
+  const roles = ['Buyer', 'Seller'];
+  const categories = ['Product', 'Service', 'Digital', 'Other'];
+  const feesOptions = ['Buyer', 'Seller', 'Split Fees'];
+
+  const maskUserId = (userId) => {
+    if (!userId) return '';
+    if (userId.length <= 4) return userId;
+    return '****' + userId.slice(-4);
+  };
+
+  const handleUserIdChange = (text) => {
+    setFormData({ ...formData, userId: text, userName: text ? `User ${maskUserId(text)}` : '' });
+  };
+
+  const handleTermsChange = (text) => {
+    setFormData({ ...formData, terms: text });
+  };
+
+  const getTermsArray = () => {
+    if (!formData.terms) return [];
+    return formData.terms.split('\n').filter(term => term.trim() !== '');
+  };
+
+  const isFormValid = () => {
+    return (
+      formData.title &&
+      formData.role &&
+      formData.userId &&
+      formData.amount &&
+      formData.terms &&
+      formData.category &&
+      formData.feesResponsibility &&
+      formData.deliveryDate
+    );
+  };
+
+  const handleContinue = () => {
+    if (!isFormValid()) {
+      Alert.alert('Error', 'Please fill in all required fields');
+      return;
+    }
+    setShowSummary(true);
+  };
+
+  const handleConfirm = () => {
+    if (!formData.confirmed) {
+      Alert.alert('Error', 'Please confirm that the information is correct');
+      return;
+    }
+    // Handle transaction creation
+    Alert.alert('Success', 'Transaction created successfully', [
+      { text: 'OK', onPress: () => router.back() }
+    ]);
+  };
+
+  if (showSummary) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" />
+        <ScrollView 
+        style={styles.scrollView} 
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+          <View style={styles.header}>
+            <TouchableOpacity onPress={() => setShowSummary(false)} style={styles.backButton}>
+              <Text style={styles.backIcon}>←</Text>
+            </TouchableOpacity>
+            <Text style={styles.headerTitle}>Transaction Summary</Text>
+            <View style={styles.placeholder} />
+          </View>
+
+          <View style={styles.summaryCard}>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Buyer:</Text>
+              <Text style={styles.summaryValue}>
+                {formData.role === 'Buyer' ? 'You' : maskUserId(formData.userId)}
+              </Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Seller:</Text>
+              <Text style={styles.summaryValue}>
+                {formData.role === 'Seller' ? 'You' : maskUserId(formData.userId)}
+              </Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Amount:</Text>
+              <Text style={styles.summaryValue}>${formData.amount} USD</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Fees Paid By:</Text>
+              <Text style={styles.summaryValue}>{formData.feesResponsibility}</Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Delivery Date:</Text>
+              <Text style={styles.summaryValue}>{formData.deliveryDate}</Text>
+            </View>
+            <View style={styles.summarySection}>
+              <Text style={styles.summaryLabel}>Terms:</Text>
+              {getTermsArray().map((term, index) => (
+                <Text key={index} style={styles.summaryTerm}>• {term}</Text>
+              ))}
+            </View>
+          </View>
+
+          <View style={styles.confirmSection}>
+            <TouchableOpacity
+              style={styles.checkboxContainer}
+              onPress={() => setFormData({ ...formData, confirmed: !formData.confirmed })}
+            >
+              <View style={[styles.checkbox, formData.confirmed && styles.checkboxChecked]}>
+                {formData.confirmed && <Text style={styles.checkmark}>✓</Text>}
+              </View>
+              <Text style={styles.checkboxLabel}>
+                I agree that the above information is correct and these are the terms of the contract.
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={[styles.confirmButton, !formData.confirmed && styles.confirmButtonDisabled]}
+            disabled={!formData.confirmed}
+            onPress={handleConfirm}
+          >
+            <Text style={[styles.confirmButtonText, !formData.confirmed && styles.confirmButtonTextDisabled]}>
+              Confirm Transaction
+            </Text>
+          </TouchableOpacity>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" />
+      <ScrollView 
+        style={styles.scrollView} 
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Text style={styles.backIcon}>←</Text>
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>New Transaction</Text>
+          <View style={styles.placeholder} />
+        </View>
+
+        <View style={styles.form}>
+          {/* Transaction Title */}
+          <View style={styles.field}>
+            <Text style={styles.label}>Transaction Title</Text>
+            <TextInput
+              style={styles.input}
+              value={formData.title}
+              onChangeText={(text) => setFormData({ ...formData, title: text })}
+              placeholder="Enter transaction title"
+              placeholderTextColor="#94a3b8"
+            />
+          </View>
+
+          {/* Role Dropdown */}
+          <View style={styles.field}>
+            <Text style={styles.label}>Role</Text>
+            <View style={styles.optionsContainer}>
+              {roles.map((role) => (
+                <TouchableOpacity
+                  key={role}
+                  style={[
+                    styles.optionButton,
+                    formData.role === role && styles.optionButtonActive
+                  ]}
+                  onPress={() => setFormData({ ...formData, role })}
+                >
+                  <Text style={[
+                    styles.optionText,
+                    formData.role === role && styles.optionTextActive
+                  ]}>
+                    {role}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* User ID Input */}
+          <View style={styles.field}>
+            <Text style={styles.label}>User ID</Text>
+            <TextInput
+              style={styles.input}
+              value={formData.userId}
+              onChangeText={handleUserIdChange}
+              placeholder="Enter user ID"
+              placeholderTextColor="#94a3b8"
+            />
+            {formData.userName && (
+              <Text style={styles.maskedName}>{formData.userName}</Text>
+            )}
+          </View>
+
+          {/* Amount */}
+          <View style={styles.field}>
+            <Text style={styles.label}>Amount</Text>
+            <View style={styles.amountInputContainer}>
+              <Text style={styles.currencySymbol}>$</Text>
+              <TextInput
+                style={styles.amountInput}
+                value={formData.amount}
+                onChangeText={(text) => setFormData({ ...formData, amount: text })}
+                placeholder="0.00"
+                placeholderTextColor="#94a3b8"
+                keyboardType="decimal-pad"
+              />
+            </View>
+          </View>
+
+          {/* Terms */}
+          <View style={styles.field}>
+            <Text style={styles.label}>Terms (one per line)</Text>
+            <TextInput
+              style={[styles.input, styles.textArea]}
+              value={formData.terms}
+              onChangeText={handleTermsChange}
+              placeholder="Enter terms, one per line"
+              placeholderTextColor="#94a3b8"
+              multiline
+              numberOfLines={4}
+            />
+          </View>
+
+          {/* Category */}
+          <View style={styles.field}>
+            <Text style={styles.label}>Category</Text>
+            <View style={styles.optionsContainer}>
+              {categories.map((category) => (
+                <TouchableOpacity
+                  key={category}
+                  style={[
+                    styles.optionButton,
+                    formData.category === category && styles.optionButtonActive
+                  ]}
+                  onPress={() => setFormData({ ...formData, category })}
+                >
+                  <Text style={[
+                    styles.optionText,
+                    formData.category === category && styles.optionTextActive
+                  ]}>
+                    {category}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Fees Responsibility */}
+          <View style={styles.field}>
+            <Text style={styles.label}>Fees Responsibility</Text>
+            <View style={styles.optionsContainer}>
+              {feesOptions.map((option) => (
+                <TouchableOpacity
+                  key={option}
+                  style={[
+                    styles.radioButton,
+                    formData.feesResponsibility === option && styles.radioButtonActive
+                  ]}
+                  onPress={() => setFormData({ ...formData, feesResponsibility: option })}
+                >
+                  <View style={[
+                    styles.radioCircle,
+                    formData.feesResponsibility === option && styles.radioCircleActive
+                  ]}>
+                    {formData.feesResponsibility === option && <View style={styles.radioInner} />}
+                  </View>
+                  <Text style={[
+                    styles.radioLabel,
+                    formData.feesResponsibility === option && styles.radioLabelActive
+                  ]}>
+                    {option}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Delivery Date */}
+          <View style={styles.field}>
+            <Text style={styles.label}>Delivery Date</Text>
+            <TextInput
+              style={styles.input}
+              value={formData.deliveryDate}
+              onChangeText={(text) => setFormData({ ...formData, deliveryDate: text })}
+              placeholder="MM/DD/YYYY"
+              placeholderTextColor="#94a3b8"
+            />
+          </View>
+
+          <TouchableOpacity
+            style={[styles.continueButton, !isFormValid() && styles.continueButtonDisabled]}
+            disabled={!isFormValid()}
+            onPress={handleContinue}
+          >
+            <Text style={[
+              styles.continueButtonText,
+              !isFormValid() && styles.continueButtonTextDisabled
+            ]}>
+              Continue
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 100,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  backIcon: {
+    fontSize: 24,
+    color: '#0f172a',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#0f172a',
+  },
+  placeholder: {
+    width: 40,
+  },
+  form: {
+    paddingHorizontal: 20,
+    paddingBottom: 32,
+  },
+  field: {
+    marginBottom: 24,
+  },
+  label: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 8,
+  },
+  input: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+    color: '#0f172a',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  textArea: {
+    minHeight: 100,
+    textAlignVertical: 'top',
+  },
+  amountInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  currencySymbol: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginRight: 8,
+  },
+  amountInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#0f172a',
+  },
+  maskedName: {
+    marginTop: 8,
+    fontSize: 14,
+    color: '#64748b',
+    fontStyle: 'italic',
+  },
+  optionsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  optionButton: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
+  },
+  optionButtonActive: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+  },
+  optionText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  optionTextActive: {
+    color: '#ffffff',
+  },
+  radioButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  radioButtonActive: {
+    // Additional styling if needed
+  },
+  radioCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  radioCircleActive: {
+    borderColor: '#3b82f6',
+  },
+  radioInner: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#3b82f6',
+  },
+  radioLabel: {
+    fontSize: 16,
+    color: '#64748b',
+  },
+  radioLabelActive: {
+    color: '#0f172a',
+    fontWeight: '600',
+  },
+  continueButton: {
+    marginTop: 8,
+    paddingVertical: 16,
+    borderRadius: 12,
+    backgroundColor: '#3b82f6',
+    alignItems: 'center',
+  },
+  continueButtonDisabled: {
+    backgroundColor: '#e2e8f0',
+  },
+  continueButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#ffffff',
+  },
+  continueButtonTextDisabled: {
+    color: '#94a3b8',
+  },
+  summaryCard: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+    padding: 20,
+    borderRadius: 12,
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 16,
+  },
+  summaryLabel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#64748b',
+  },
+  summaryValue: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0f172a',
+  },
+  summarySection: {
+    marginTop: 8,
+  },
+  summaryTerm: {
+    fontSize: 14,
+    color: '#0f172a',
+    marginTop: 8,
+    marginLeft: 8,
+  },
+  confirmSection: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+  },
+  checkboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#e2e8f0',
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  checkboxChecked: {
+    backgroundColor: '#3b82f6',
+    borderColor: '#3b82f6',
+  },
+  checkmark: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  checkboxLabel: {
+    flex: 1,
+    fontSize: 14,
+    color: '#0f172a',
+    lineHeight: 20,
+  },
+  confirmButton: {
+    marginHorizontal: 20,
+    marginBottom: 32,
+    paddingVertical: 16,
+    borderRadius: 12,
+    backgroundColor: '#3b82f6',
+    alignItems: 'center',
+  },
+  confirmButtonDisabled: {
+    backgroundColor: '#e2e8f0',
+  },
+  confirmButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#ffffff',
+  },
+  confirmButtonTextDisabled: {
+    color: '#94a3b8',
+  },
+});
+

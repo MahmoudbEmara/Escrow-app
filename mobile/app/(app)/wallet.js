@@ -1,111 +1,305 @@
 import React, { useContext } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, FlatList } from 'react-native';
-import { LanguageContext } from '../../src/context/LanguageContext';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import { StatusBar } from 'react-native';
+import { useRouter } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
-
-const recent = [
-  { id: '1', title: 'Spotify Subscription', amount: '$100.00', date: '10 April, 2025' },
-  { id: '2', title: 'Online Purchase', amount: '$120.50', date: '17 April, 2025' },
-  { id: '3', title: 'Mobile Top-up', amount: '₦5,000.00', date: '18 April, 2025' }
-];
+import { LanguageContext } from '../../src/context/LanguageContext';
 
 export default function WalletScreen() {
-  const { t, isRTL } = useContext(LanguageContext);
   const { state } = useContext(AuthContext);
-  const userName = state.user?.name || 'User';
+  const { t, isRTL } = useContext(LanguageContext);
+  const router = useRouter();
 
-  const actionLabels = [t('receive'), t('request'), t('exchange'), t('withdraw')];
+  const availableBalance = 3850.00;
+  const escrowBalance = 5050.00;
+
+  // Sample payment history
+  const paymentHistory = [
+    {
+      id: 1,
+      name: 'Bank Transfer',
+      date: 'Nov 20, 2025',
+      amount: 500,
+      type: 'credit',
+    },
+    {
+      id: 2,
+      name: 'Logo Design Payment',
+      date: 'Nov 18, 2025',
+      amount: 450,
+      type: 'debit',
+    },
+    {
+      id: 3,
+      name: 'Website Development',
+      date: 'Nov 17, 2025',
+      amount: 2500,
+      type: 'credit',
+    },
+    {
+      id: 4,
+      name: 'Withdrawal to Bank',
+      date: 'Nov 15, 2025',
+      amount: 300,
+      type: 'debit',
+    },
+  ];
 
   return (
-    <View style={[styles.root, isRTL && styles.rootRTL]}>
-      <View style={styles.header}>
-        <Text style={[styles.hello, isRTL && styles.helloRTL]}>{t('hello')}, {userName}</Text>
-        <Text style={[styles.balanceLabel, isRTL && styles.balanceLabelRTL]}>{t('yourWalletBalance')}</Text>
-        <Text style={styles.balance}>₦209,891.21</Text>
-        <View style={[styles.headerButtons, isRTL && styles.headerButtonsRTL]}>
-          <TouchableOpacity style={styles.primaryBtn}><Text style={styles.primaryBtnText}>{t('fund')}</Text></TouchableOpacity>
-          <TouchableOpacity style={[styles.primaryBtn, styles.secondaryBtn]}><Text style={[styles.primaryBtnText, styles.secondaryBtnText]}>{t('send')}</Text></TouchableOpacity>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" />
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        {/* Header */}
+        <View style={styles.header}>
+          <Text style={[styles.headerTitle, isRTL && styles.textRTL]}>{t('wallet')}</Text>
         </View>
-      </View>
 
-      <View style={[styles.walletChips, isRTL && styles.walletChipsRTL]}>
-        <Text style={styles.chip}>NGN</Text>
-        <Text style={styles.chip}>USD</Text>
-        <Text style={styles.chip}>EUR</Text>
-        <Text style={[styles.chip, styles.addChip]}>{t('addWallet')}</Text>
-      </View>
+        {/* Balance Card */}
+        <View style={styles.balanceCard}>
+          <Text style={[styles.balanceLabel, isRTL && styles.textRTL]}>{t('availableBalance')}</Text>
+          <Text style={[styles.balanceAmount, isRTL && styles.textRTL]}>${availableBalance.toFixed(2)}</Text>
+        </View>
 
-      <View style={[styles.actionsRow, isRTL && styles.actionsRowRTL]}>
-        {actionLabels.map((label) => (
-          <View key={label} style={styles.actionItem}>
-            <View style={styles.actionIcon} />
-            <Text style={styles.actionText}>{label}</Text>
-          </View>
-        ))}
-      </View>
+        {/* Escrow Balance */}
+        <View style={styles.escrowBalanceCard}>
+          <Text style={[styles.escrowBalanceLabel, isRTL && styles.textRTL]}>{t('escrowBalance')}</Text>
+          <Text style={[styles.escrowBalanceAmount, isRTL && styles.textRTL]}>${escrowBalance.toFixed(2)}</Text>
+        </View>
 
-      <View style={[styles.sectionHeader, isRTL && styles.sectionHeaderRTL]}> 
-        <Text style={[styles.sectionTitle, isRTL && styles.sectionTitleRTL]}>{t('recentTransactions')}</Text>
-        <TouchableOpacity><Text style={styles.seeAll}>{t('seeAll')}</Text></TouchableOpacity>
-      </View>
-      <FlatList
-        data={recent}
-        keyExtractor={(i) => i.id}
-        renderItem={({ item }) => (
-          <View style={[styles.txnRow, isRTL && styles.txnRowRTL]}>
-            <View style={styles.txnIcon} />
-            <View style={styles.txnMain}>
-              <Text style={[styles.txnTitle, isRTL && styles.txnTitleRTL]}>{item.title}</Text>
-              <Text style={[styles.txnDate, isRTL && styles.txnDateRTL]}>{item.date}</Text>
+        {/* Action Buttons */}
+        <View style={[styles.actionButtons, isRTL && styles.actionButtonsRTL]}>
+          <TouchableOpacity
+            style={[styles.addMoneyButton, isRTL && styles.addMoneyButtonRTL]}
+            onPress={() => router.push('/(app)/add-money')}
+          >
+            <Text style={styles.addMoneyIcon}>+</Text>
+            <Text style={styles.addMoneyText}>{t('addMoney')}</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.withdrawButton, isRTL && styles.withdrawButtonRTL]}
+            onPress={() => router.push('/(app)/withdraw')}
+          >
+            <Text style={styles.withdrawText}>{t('withdraw')}</Text>
+            <Text style={styles.withdrawIcon}>↗</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Payment History */}
+        <View style={styles.historyHeader}>
+          <Text style={[styles.historyTitle, isRTL && styles.textRTL]}>{t('paymentHistory')}</Text>
+        </View>
+
+        <View style={styles.historyList}>
+          {paymentHistory.map((payment) => (
+            <View key={payment.id} style={[styles.historyItem, isRTL && styles.historyItemRTL]}>
+              <View style={[styles.historyLeft, isRTL && styles.historyLeftRTL]}>
+                <View style={[
+                  styles.historyIcon,
+                  { backgroundColor: payment.type === 'credit' ? '#d1fae5' : '#fee2e2' }
+                ]}>
+                  <Text style={[
+                    styles.historyIconText,
+                    { color: payment.type === 'credit' ? '#22c55e' : '#ef4444' }
+                  ]}>
+                    {payment.type === 'credit' ? '↓' : '↑'}
+                  </Text>
+                </View>
+                <View style={styles.historyInfo}>
+                  <Text style={[styles.historyName, isRTL && styles.textRTL]}>{payment.name}</Text>
+                  <Text style={[styles.historyDate, isRTL && styles.textRTL]}>{payment.date}</Text>
+                </View>
+              </View>
+              <Text style={[
+                styles.historyAmount,
+                { color: payment.type === 'credit' ? '#22c55e' : '#ef4444' },
+                isRTL && styles.textRTL
+              ]}>
+                {payment.type === 'credit' ? '+' : '-'}${payment.amount.toFixed(2)}
+              </Text>
             </View>
-            <Text style={styles.txnAmount}>{item.amount}</Text>
-          </View>
-        )}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 100 }}
-      />
-
+          ))}
+        </View>
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: '#f3f7f3' },
-  rootRTL: { direction: 'rtl' },
-  header: { backgroundColor: '#0f5132', paddingTop: 48, paddingBottom: 16, paddingHorizontal: 16, borderBottomLeftRadius: 16, borderBottomRightRadius: 16 },
-  hello: { color: '#d2f4ea', marginBottom: 8 },
-  helloRTL: { textAlign: 'right' },
-  balanceLabel: { color: '#c9e9d9', fontSize: 14 },
-  balanceLabelRTL: { textAlign: 'right' },
-  balance: { color: '#ffffff', fontSize: 32, fontWeight: '700', marginVertical: 12 },
-  headerButtons: { flexDirection: 'row', gap: 12 },
-  headerButtonsRTL: { flexDirection: 'row-reverse' },
-  primaryBtn: { backgroundColor: '#22c55e', paddingVertical: 10, paddingHorizontal: 18, borderRadius: 10 },
-  secondaryBtn: { backgroundColor: 'white' },
-  primaryBtnText: { color: 'white', fontWeight: '600' },
-  secondaryBtnText: { color: '#0f5132' },
-  walletChips: { flexDirection: 'row', gap: 8, paddingHorizontal: 16, paddingVertical: 12 },
-  walletChipsRTL: { flexDirection: 'row-reverse' },
-  chip: { backgroundColor: 'white', color: '#0f5132', paddingVertical: 8, paddingHorizontal: 12, borderRadius: 16, fontWeight: '600' },
-  addChip: { backgroundColor: '#e8f5e9' },
-  actionsRow: { flexDirection: 'row', justifyContent: 'space-around', paddingHorizontal: 10, paddingVertical: 10 },
-  actionsRowRTL: { flexDirection: 'row-reverse' },
-  actionItem: { alignItems: 'center' },
-  actionIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: '#d1fae5', marginBottom: 6 },
-  actionText: { color: '#0f5132', fontWeight: '600' },
-  sectionHeader: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 4, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  sectionHeaderRTL: { flexDirection: 'row-reverse' },
-  sectionTitle: { fontSize: 16, fontWeight: '700', color: '#0f5132' },
-  sectionTitleRTL: { textAlign: 'right' },
-  seeAll: { color: '#16a34a' },
-  txnRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 12, backgroundColor: 'white', marginBottom: 8, borderRadius: 12, paddingHorizontal: 12 },
-  txnRowRTL: { flexDirection: 'row-reverse' },
-  txnIcon: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#e2e8f0', marginRight: 12 },
-  txnMain: { flex: 1 },
-  txnTitle: { fontWeight: '600', color: '#0f172a' },
-  txnTitleRTL: { textAlign: 'right' },
-  txnDate: { color: '#64748b', fontSize: 12 },
-  txnDateRTL: { textAlign: 'right' },
-  txnAmount: { fontWeight: '700', color: '#0f172a' }
+  container: {
+    flex: 1,
+    backgroundColor: '#ffffff',
+  },
+  scrollView: {
+    flex: 1,
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 20,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: 'bold',
+    color: '#0f172a',
+  },
+  balanceCard: {
+    marginHorizontal: 20,
+    marginBottom: 16,
+    padding: 24,
+    borderRadius: 16,
+    backgroundColor: '#8b5cf6',
+  },
+  balanceLabel: {
+    fontSize: 14,
+    color: '#ffffff',
+    opacity: 0.9,
+    marginBottom: 8,
+  },
+  balanceAmount: {
+    fontSize: 36,
+    fontWeight: 'bold',
+    color: '#ffffff',
+  },
+  escrowBalanceCard: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: '#f3f4f6',
+  },
+  escrowBalanceLabel: {
+    fontSize: 14,
+    color: '#64748b',
+    marginBottom: 4,
+  },
+  escrowBalanceAmount: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#0f172a',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    marginBottom: 32,
+    gap: 12,
+  },
+  addMoneyButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#ffffff',
+    borderWidth: 2,
+    borderColor: '#3b82f6',
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  addMoneyIcon: {
+    fontSize: 20,
+    color: '#3b82f6',
+    fontWeight: 'bold',
+    marginRight: 8,
+  },
+  addMoneyText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#3b82f6',
+  },
+  withdrawButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#3b82f6',
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  withdrawText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#ffffff',
+    marginRight: 8,
+  },
+  withdrawIcon: {
+    fontSize: 20,
+    color: '#ffffff',
+    fontWeight: 'bold',
+  },
+  historyHeader: {
+    paddingHorizontal: 20,
+    marginBottom: 16,
+  },
+  historyTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#0f172a',
+  },
+  historyList: {
+    paddingHorizontal: 20,
+    paddingBottom: 100,
+  },
+  historyItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#ffffff',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  historyLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flex: 1,
+  },
+  historyIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  historyIconText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  historyInfo: {
+    flex: 1,
+  },
+  historyName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#0f172a',
+    marginBottom: 4,
+  },
+  historyDate: {
+    fontSize: 14,
+    color: '#64748b',
+  },
+  historyAmount: {
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  textRTL: {
+    textAlign: 'right',
+  },
+  actionButtonsRTL: {
+    flexDirection: 'row-reverse',
+  },
+  addMoneyButtonRTL: {
+    flexDirection: 'row-reverse',
+  },
+  withdrawButtonRTL: {
+    flexDirection: 'row-reverse',
+  },
+  historyItemRTL: {
+    flexDirection: 'row-reverse',
+  },
+  historyLeftRTL: {
+    flexDirection: 'row-reverse',
+  },
 });
-
 
