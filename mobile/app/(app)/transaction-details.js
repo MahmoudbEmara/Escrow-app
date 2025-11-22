@@ -3,11 +3,13 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'rea
 import { StatusBar } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
+import { LanguageContext } from '../../src/context/LanguageContext';
 
 export default function TransactionDetailsScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
   const { state } = useContext(AuthContext);
+  const { t, isRTL } = useContext(LanguageContext);
 
   // Sample transaction data - in real app, fetch by ID
   const transaction = {
@@ -189,13 +191,21 @@ export default function TransactionDetailsScreen() {
 
         {/* Action Buttons */}
         <View style={styles.actionsContainer}>
+          <TouchableOpacity
+            style={styles.messageButton}
+            onPress={() => router.push(`/(app)/chat?transactionId=${transaction.id}&chatId=CHAT${transaction.id}`)}
+          >
+            <Text style={styles.messageButtonIcon}>💬</Text>
+            <Text style={styles.messageButtonText}>{t('message') || 'Message'}</Text>
+          </TouchableOpacity>
+
           {transaction.status !== 'Completed' && transaction.status !== 'In Dispute' && (
             <>
               <TouchableOpacity
                 style={styles.disputeButton}
                 onPress={handleDispute}
               >
-                <Text style={styles.disputeButtonText}>Dispute</Text>
+                <Text style={styles.disputeButtonText}>{t('dispute')}</Text>
               </TouchableOpacity>
 
               {transaction.role === 'Buyer' && (
@@ -203,7 +213,7 @@ export default function TransactionDetailsScreen() {
                   style={styles.confirmButton}
                   onPress={handleConfirmDelivery}
                 >
-                  <Text style={styles.confirmButtonText}>Confirm Delivery</Text>
+                  <Text style={styles.confirmButtonText}>{t('confirmDelivery')}</Text>
                 </TouchableOpacity>
               )}
             </>
@@ -347,6 +357,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   confirmButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#ffffff',
+  },
+  messageButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    backgroundColor: '#3b82f6',
+    marginBottom: 12,
+  },
+  messageButtonIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  messageButtonText: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#ffffff',
