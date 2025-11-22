@@ -5,6 +5,7 @@ import { useRouter, useFocusEffect } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as DatabaseService from '../../src/services/databaseService';
+import { supabase } from '../../src/lib/supabase';
 
 export default function MessagesScreen() {
   const { state } = useContext(AuthContext);
@@ -42,9 +43,70 @@ export default function MessagesScreen() {
     useCallback(() => {
       if (state.user?.id) {
         fetchChats();
+        // Also refresh unread count in navigation when messages page is focused
+        // This will be handled by the navigation's realtime subscription
       }
     }, [state.user?.id, fetchChats])
   );
+
+  // Set up realtime subscriptions for new messages and transactions
+  useEffect(() => {
+    if (!state.user?.id) {
+      return;
+    }
+
+    console.log('Setting up realtime subscriptions for messages and transactions...');
+    
+    // Subscribe to INSERT events on messages table
+    const messagesChannel = supabase
+      .channel(`messages-changes-${state.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+        },
+        (payload) => {
+          console.log('New message detected:', payload.new);
+          // Refresh chats list when a new message is sent
+          fetchChats();
+        }
+      )
+      .subscribe((status) => {
+        console.log('Messages subscription status:', status);
+      });
+
+    // Subscribe to INSERT events on transactions table (for new chats)
+    const transactionsChannel = supabase
+      .channel(`transactions-changes-messages-${state.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'transactions',
+        },
+        (payload) => {
+          // Check if the new transaction involves the current user
+          if (payload.new.buyer_id === state.user.id || payload.new.seller_id === state.user.id) {
+            console.log('New transaction detected (relevant for chats):', payload.new);
+            // Refresh chats list when a new transaction is created
+            fetchChats();
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Transactions subscription status:', status);
+      });
+
+    // Cleanup subscriptions on unmount
+    return () => {
+      console.log('Cleaning up realtime subscriptions...');
+      supabase.removeChannel(messagesChannel);
+      supabase.removeChannel(transactionsChannel);
+    };
+  }, [state.user?.id, fetchChats]);
 
   const getStatusColor = (status) => {
     switch (status) {

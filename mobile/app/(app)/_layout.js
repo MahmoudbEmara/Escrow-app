@@ -1,12 +1,105 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect, useCallback } from 'react';
 import { Tabs, Redirect } from 'expo-router';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, Text } from 'react-native';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
+import * as DatabaseService from '../../src/services/databaseService';
+import { supabase } from '../../src/lib/supabase';
 
 export default function AppLayout() {
   const { state } = useContext(AuthContext);
   const { t, isRTL } = useContext(LanguageContext);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  // Fetch total unread messages count
+  const fetchUnreadCount = useCallback(async () => {
+    if (!state.user?.id) {
+      setUnreadCount(0);
+      return;
+    }
+
+    try {
+      const result = await DatabaseService.getTotalUnreadCount(state.user.id);
+      if (result.data !== undefined) {
+        setUnreadCount(result.data || 0);
+      }
+    } catch (error) {
+      console.error('Error fetching unread count:', error);
+    }
+  }, [state.user?.id]);
+
+  // Fetch unread count on mount and when user changes
+  useEffect(() => {
+    fetchUnreadCount();
+  }, [fetchUnreadCount]);
+
+  // Set up realtime subscription for new messages to update unread count
+  useEffect(() => {
+    if (!state.user?.id) {
+      return;
+    }
+
+    console.log('Setting up unread count subscription...');
+
+    const channel = supabase
+      .channel(`unread-count-${state.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+        },
+        async (payload) => {
+          // Check if the message is for the current user
+          const message = payload.new;
+          
+          // Check if this message is in a transaction involving the current user
+          // and if the sender is not the current user
+          if (message.sender_id !== state.user.id) {
+            try {
+              // Verify the transaction involves the current user
+              const { data: txn } = await supabase
+                .from('transactions')
+                .select('buyer_id, seller_id')
+                .eq('id', message.transaction_id)
+                .single();
+              
+              if (txn && (txn.buyer_id === state.user.id || txn.seller_id === state.user.id)) {
+                console.log('New message received for current user, updating unread count');
+                // Refresh unread count
+                fetchUnreadCount();
+              }
+            } catch (error) {
+              console.error('Error checking transaction for unread count:', error);
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+        },
+        (payload) => {
+          // If a message was marked as read, refresh count
+          if (payload.new.read_at && !payload.old.read_at) {
+            console.log('Message marked as read, updating unread count');
+            fetchUnreadCount();
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Unread count subscription status:', status);
+      });
+
+    return () => {
+      console.log('Cleaning up unread count subscription...');
+      supabase.removeChannel(channel);
+    };
+  }, [state.user?.id, fetchUnreadCount]);
 
   // Wait for auth to finish loading
   if (state.isLoading) {
@@ -66,6 +159,15 @@ export default function AppLayout() {
         options={{
           title: t('messages') || 'Messages',
           tabBarIcon: () => null,
+          tabBarBadge: unreadCount > 0 ? (unreadCount > 99 ? '99+' : unreadCount) : undefined,
+          tabBarBadgeStyle: {
+            backgroundColor: '#ef4444',
+            color: '#ffffff',
+            fontSize: 12,
+            fontWeight: 'bold',
+            minWidth: 20,
+            height: 20,
+          },
         }}
       />
       <Tabs.Screen

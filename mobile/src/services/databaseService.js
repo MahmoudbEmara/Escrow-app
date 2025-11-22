@@ -305,6 +305,133 @@ export const updateTransactionStatus = async (transactionId, status, additionalU
   });
 };
 
+/**
+ * Delete transaction and all related data
+ * @param {string} transactionId - Transaction ID
+ * @returns {Promise<object>} - Delete result
+ */
+export const deleteTransaction = async (transactionId) => {
+  try {
+    console.log('Deleting transaction:', transactionId);
+    
+    // Delete related messages first (if messages table exists and has transaction_id)
+    try {
+      const { error: messagesError } = await supabase
+        .from('messages')
+        .delete()
+        .eq('transaction_id', transactionId);
+      
+      if (messagesError && !messagesError.message.includes('does not exist')) {
+        console.error('Error deleting messages:', messagesError);
+        // Continue anyway - messages might not exist
+      } else {
+        console.log('Messages deleted successfully');
+      }
+    } catch (messagesErr) {
+      console.log('Messages table might not exist or have transaction_id:', messagesErr);
+    }
+    
+    // Delete transaction terms (if transaction_terms table exists)
+    // Note: Terms might be stored in the transactions table itself, so this table might not exist
+    try {
+      const { error: termsError } = await supabase
+        .from('transaction_terms')
+        .delete()
+        .eq('transaction_id', transactionId);
+      
+      if (termsError) {
+        // Check if it's a "table not found" error (code PGRST205)
+        if (termsError.code === 'PGRST205' || termsError.message.includes('does not exist') || termsError.message.includes('Could not find the table')) {
+          console.log('Transaction terms table does not exist (terms likely stored in transactions table)');
+          // This is expected - terms are probably stored in the transactions table itself
+        } else {
+          console.error('Error deleting transaction terms:', termsError);
+          // Continue anyway - don't block deletion
+        }
+      } else {
+        console.log('Transaction terms deleted successfully');
+      }
+    } catch (termsErr) {
+      console.log('Transaction terms table might not exist (this is OK):', termsErr.message || termsErr);
+    }
+    
+    // Delete payment/transaction history entries (try both table names)
+    try {
+      // Try transaction_history first (the actual table name)
+      const { error: transactionHistoryError } = await supabase
+        .from('transaction_history')
+        .delete()
+        .eq('transaction_id', transactionId);
+      
+      if (transactionHistoryError && !transactionHistoryError.message.includes('does not exist')) {
+        console.error('Error deleting transaction history:', transactionHistoryError);
+        // Try payment_history as fallback
+        try {
+          const { error: paymentError } = await supabase
+            .from('payment_history')
+            .delete()
+            .eq('transaction_id', transactionId);
+          
+          if (paymentError && !paymentError.message.includes('does not exist')) {
+            console.error('Error deleting payment history:', paymentError);
+            // Continue anyway
+          } else {
+            console.log('Payment history deleted successfully');
+          }
+        } catch (paymentErr) {
+          console.log('Payment history table might not exist:', paymentErr);
+        }
+      } else {
+        console.log('Transaction history deleted successfully');
+      }
+    } catch (historyErr) {
+      console.log('History table might not exist:', historyErr);
+    }
+    
+    // Finally, delete the transaction itself
+    console.log('Attempting to delete transaction with ID:', transactionId);
+    const { data, error } = await supabase
+      .from('transactions')
+      .delete()
+      .eq('id', transactionId)
+      .select();
+    
+    console.log('Delete transaction result:', { data, error });
+    
+    if (error) {
+      console.error('Error deleting transaction:', error);
+      console.error('Error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+      throw error;
+    }
+    
+    // Check if any rows were actually deleted
+    if (data && data.length === 0) {
+      console.warn('No rows were deleted - transaction might not exist or RLS policy blocked deletion');
+      return {
+        success: false,
+        error: 'Transaction not found or you do not have permission to delete it',
+      };
+    }
+    
+    console.log('Transaction deleted successfully:', data);
+    return {
+      success: true,
+      error: null,
+    };
+  } catch (error) {
+    console.error('Delete transaction error:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to delete transaction',
+    };
+  }
+};
+
 // ==================== MESSAGES ====================
 
 /**
@@ -436,6 +563,9 @@ export const getChatsForUser = async (userId) => {
           }
         }
 
+        // Use last message timestamp for sorting, or transaction created_at if no messages
+        const lastActivityTimestamp = lastMessage?.created_at || txn.created_at;
+
         return {
           id: `CHAT${txn.id}`,
           transactionId: txn.id,
@@ -444,11 +574,19 @@ export const getChatsForUser = async (userId) => {
           otherPartyId: otherPartyId,
           lastMessage: lastMessage?.message || '',
           lastMessageTime: lastMessageTime,
+          lastActivityTimestamp: lastActivityTimestamp, // For sorting
           unreadCount: unreadCount,
           status: txn.status || 'pending',
         };
       })
     );
+
+    // Sort chats by latest activity (most recent first)
+    chats.sort((a, b) => {
+      const timestampA = new Date(a.lastActivityTimestamp).getTime();
+      const timestampB = new Date(b.lastActivityTimestamp).getTime();
+      return timestampB - timestampA; // Descending order (newest first)
+    });
 
     return { data: chats, error: null };
   } catch (error) {
@@ -456,6 +594,57 @@ export const getChatsForUser = async (userId) => {
     return {
       data: null,
       error: error.message || 'Failed to fetch chats',
+    };
+  }
+};
+
+/**
+ * Get total unread messages count for a user
+ * @param {string} userId - User ID
+ * @returns {Promise<object>} - Total unread count
+ */
+export const getTotalUnreadCount = async (userId) => {
+  try {
+    // Get all transactions where user is buyer or seller
+    const { data: transactions, error: txnError } = await supabase
+      .from('transactions')
+      .select('id, buyer_id, seller_id')
+      .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`);
+
+    if (txnError || !transactions || transactions.length === 0) {
+      return { data: 0, error: null };
+    }
+
+    let totalUnread = 0;
+
+    // For each transaction, get unread count
+    for (const txn of transactions) {
+      const otherPartyId = txn.buyer_id === userId ? txn.seller_id : txn.buyer_id;
+      
+      try {
+        // Try to get unread count if read_at column exists
+        const { count, error: countError } = await supabase
+          .from('messages')
+          .select('*', { count: 'exact', head: true })
+          .eq('transaction_id', txn.id)
+          .eq('sender_id', otherPartyId)
+          .is('read_at', null);
+        
+        if (!countError && count) {
+          totalUnread += count;
+        }
+      } catch (error) {
+        // If read_at column doesn't exist, continue
+        console.log('Error getting unread count for transaction:', txn.id, error);
+      }
+    }
+
+    return { data: totalUnread, error: null };
+  } catch (error) {
+    console.error('Get total unread count error:', error);
+    return {
+      data: 0,
+      error: error.message || 'Failed to get unread count',
     };
   }
 };
@@ -667,25 +856,56 @@ export const checkUsernameAvailability = async (username) => {
       };
     }
 
-    // Check if username exists in database
+    // Use database function to check username availability (bypasses RLS)
+    // This allows unauthenticated users (during signup) to check username availability
     const { data, error } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('username', trimmedUsername)
-      .limit(1);
+      .rpc('check_username_available', { username_input: trimmedUsername });
 
     if (error) {
-      // If error is about column not existing, assume available (for backward compatibility)
-      if (error.message && error.message.includes('username')) {
+      console.error('Check username availability RPC error:', error);
+      // Fallback to direct query if RPC function doesn't exist
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('username', trimmedUsername)
+        .limit(1);
+
+      if (fallbackError) {
+        // If error is about column not existing, assume available (for backward compatibility)
+        if (fallbackError.message && fallbackError.message.includes('username')) {
+          return {
+            available: true,
+            error: null,
+          };
+        }
+        throw fallbackError;
+      }
+
+      if (fallbackData && fallbackData.length > 0) {
         return {
-          available: true,
-          error: null,
+          available: false,
+          error: 'This username is already taken',
         };
       }
-      throw error;
+
+      return {
+        available: true,
+        error: null,
+      };
     }
 
-    if (data && data.length > 0) {
+    // RPC returns an array, get first result
+    const result = Array.isArray(data) && data.length > 0 ? data[0] : null;
+    
+    if (!result) {
+      // If no result, assume available (function might not exist yet)
+      return {
+        available: true,
+        error: null,
+      };
+    }
+
+    if (result.available === false || result.username_exists === true) {
       return {
         available: false,
         error: 'This username is already taken',
@@ -701,6 +921,93 @@ export const checkUsernameAvailability = async (username) => {
     return {
       available: false,
       error: error.message || 'Failed to check username availability',
+    };
+  }
+};
+
+/**
+ * Check if email is available (not already registered)
+ * @param {string} email - Email address to check
+ * @returns {Promise<object>} - Availability result
+ */
+export const checkEmailAvailability = async (email) => {
+  try {
+    if (!email || email.trim() === '') {
+      return {
+        available: false,
+        error: 'Email is required',
+      };
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      return {
+        available: false,
+        error: 'Please enter a valid email address',
+      };
+    }
+
+    // Use database function to check email availability (bypasses RLS)
+    // This allows unauthenticated users (during signup) to check email availability
+    const { data, error } = await supabase
+      .rpc('check_email_available', { email_input: trimmedEmail });
+
+    if (error) {
+      console.error('Check email availability RPC error:', error);
+      // Fallback to direct query if RPC function doesn't exist
+      const { data: fallbackData, error: fallbackError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', trimmedEmail)
+        .limit(1);
+
+      if (fallbackError) {
+        throw fallbackError;
+      }
+
+      if (fallbackData && fallbackData.length > 0) {
+        return {
+          available: false,
+          error: 'This email is already registered',
+        };
+      }
+
+      return {
+        available: true,
+        error: null,
+      };
+    }
+
+    // RPC returns an array, get first result
+    const result = Array.isArray(data) && data.length > 0 ? data[0] : null;
+    
+    if (!result) {
+      // If no result, assume available (function might not exist yet)
+      return {
+        available: true,
+        error: null,
+      };
+    }
+
+    if (result.available === false || result.email_exists === true) {
+      return {
+        available: false,
+        error: 'This email is already registered',
+      };
+    }
+
+    return {
+      available: true,
+      error: null,
+    };
+  } catch (error) {
+    console.error('Check email availability error:', error);
+    return {
+      available: false,
+      error: error.message || 'Failed to check email availability',
     };
   }
 };
