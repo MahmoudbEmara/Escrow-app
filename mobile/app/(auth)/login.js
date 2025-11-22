@@ -1,9 +1,10 @@
-import React, { useState, useContext } from 'react';
-import { View, TextInput, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
+import React, { useState, useContext, useEffect, useCallback } from 'react';
+import { View, TextInput, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import { StatusBar } from 'react-native';
+import * as DatabaseService from '../../src/services/databaseService';
 
 export default function LoginRoute() {
   const { signIn, signUp } = useContext(AuthContext);
@@ -12,19 +13,81 @@ export default function LoginRoute() {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [name, setName] = useState('');
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [username, setUsername] = useState('');
+  const [usernameStatus, setUsernameStatus] = useState(null); // null, 'checking', 'available', 'taken', 'invalid'
+  const [usernameError, setUsernameError] = useState('');
   const [err, setErr] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [saveLoginInfo, setSaveLoginInfo] = useState(false);
+
+  // Debounced username check
+  useEffect(() => {
+    if (isLogin || !username.trim()) {
+      setUsernameStatus(null);
+      setUsernameError('');
+      return;
+    }
+
+    const trimmedUsername = username.trim().toLowerCase();
+    
+    // Basic validation
+    if (trimmedUsername.length < 3) {
+      setUsernameStatus('invalid');
+      setUsernameError('Username must be at least 3 characters');
+      return;
+    }
+
+    if (trimmedUsername.length > 30) {
+      setUsernameStatus('invalid');
+      setUsernameError('Username must be 30 characters or less');
+      return;
+    }
+
+    const usernameRegex = /^[a-z0-9_]+$/;
+    if (!usernameRegex.test(trimmedUsername)) {
+      setUsernameStatus('invalid');
+      setUsernameError('Only lowercase letters, numbers, and underscores allowed');
+      return;
+    }
+
+    // Debounce the API call
+    setUsernameStatus('checking');
+    setUsernameError('');
+
+    const timeoutId = setTimeout(async () => {
+      const result = await DatabaseService.checkUsernameAvailability(trimmedUsername);
+      if (result.available) {
+        setUsernameStatus('available');
+        setUsernameError('');
+      } else {
+        setUsernameStatus('taken');
+        setUsernameError(result.error || 'Username is not available');
+      }
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [username, isLogin]);
 
   const handleSubmit = async () => {
     setErr(null);
     
     // Validation
     if (!email.trim()) {
-      setErr('Email is required');
+      setErr(isLogin ? 'Email or username is required' : 'Email is required');
       return;
     }
+    
+    // Email format validation (only for signup)
+    if (!isLogin) {
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email.trim())) {
+        setErr('Please enter a valid email address');
+        return;
+      }
+    }
+    
     if (!password.trim()) {
       setErr('Password is required');
       return;
@@ -40,8 +103,30 @@ export default function LoginRoute() {
         setErr(res?.message || t('loginFailed') || 'Login failed');
       }
     } else {
-      if (!name.trim()) {
-        setErr('Name is required');
+      if (!firstName.trim()) {
+        setErr('First name is required');
+        return;
+      }
+      if (!lastName.trim()) {
+        setErr('Last name is required');
+        return;
+      }
+      if (!username.trim()) {
+        setErr('Username is required');
+        return;
+      }
+      if (usernameStatus !== 'available') {
+        setErr('Please choose an available username');
+        return;
+      }
+      if (!email.trim()) {
+        setErr('Email is required');
+        return;
+      }
+      // Email format validation for signup
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+      if (!emailRegex.test(email.trim())) {
+        setErr('Please enter a valid email address');
         return;
       }
       if (password.length < 6) {
@@ -49,14 +134,18 @@ export default function LoginRoute() {
         return;
       }
       
-      const res = await signUp(name.trim(), email.trim(), password);
+      const res = await signUp(firstName.trim(), lastName.trim(), username.trim(), email.trim(), password);
       if (res?.error) {
         setErr(res.error);
       } else if (res?.token) {
+        // If token exists, user is logged in (email verification might not be required)
         router.replace('/(app)/home');
+      } else if (res?.user) {
+        // User created but email verification required
+        router.replace('/(auth)/email-verification');
       } else if (res?.message) {
         // Email verification required
-        setErr(res.message);
+        router.replace('/(auth)/email-verification');
       } else {
         setErr('Sign up failed');
       }
@@ -64,9 +153,17 @@ export default function LoginRoute() {
   };
 
   return (
-    <View style={styles.container}>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+    >
       <StatusBar barStyle="dark-content" />
-      <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        contentContainerStyle={styles.scrollContent} 
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* Header Section */}
         <View style={styles.headerSection}>
           <Text style={[styles.mainTitle, isRTL && styles.mainTitleRTL]}>{t('loginOrSignUp')}</Text>
@@ -80,6 +177,11 @@ export default function LoginRoute() {
             onPress={() => {
               setIsLogin(true);
               setErr(null);
+              setFirstName('');
+              setLastName('');
+              setUsername('');
+              setUsernameStatus(null);
+              setUsernameError('');
             }}
           >
             <Text style={[styles.toggleText, isLogin && styles.toggleTextActive]}>{t('login')}</Text>
@@ -98,28 +200,91 @@ export default function LoginRoute() {
         {/* Input Fields */}
         <View style={styles.inputContainer}>
           {!isLogin && (
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={[styles.input, isRTL && styles.inputRTL]}
-                placeholder={t('name')}
-                value={name}
-                onChangeText={setName}
-                textAlign={isRTL ? 'right' : 'left'}
-                placeholderTextColor="#94a3b8"
-              />
-            </View>
+            <>
+              <View style={[styles.nameRow, isRTL && styles.nameRowRTL]}>
+                <View style={[styles.inputWrapper, styles.nameFieldWrapper]}>
+                  <TextInput
+                    style={[styles.input, isRTL && styles.inputRTL]}
+                    placeholder={t('First Name') || 'First name'}
+                    value={firstName}
+                    onChangeText={setFirstName}
+                    textAlign={isRTL ? 'right' : 'left'}
+                    placeholderTextColor="#94a3b8"
+                  />
+                </View>
+                <View style={[styles.inputWrapper, styles.nameFieldWrapper]}>
+                  <TextInput
+                    style={[styles.input, isRTL && styles.inputRTL]}
+                    placeholder={t('Last Name') || 'Last name'}
+                    value={lastName}
+                    onChangeText={setLastName}
+                    textAlign={isRTL ? 'right' : 'left'}
+                    placeholderTextColor="#94a3b8"
+                  />
+                </View>
+              </View>
+              <View style={styles.inputWrapper}>
+                <View style={styles.usernameContainer}>
+                  <TextInput
+                    style={[
+                      styles.input,
+                      isRTL && styles.inputRTL,
+                      usernameStatus === 'available' && styles.inputValid,
+                      (usernameStatus === 'taken' || usernameStatus === 'invalid') && styles.inputInvalid
+                    ]}
+                    placeholder="Username"
+                    value={username}
+                    onChangeText={(text) => {
+                      // Convert to lowercase and remove spaces
+                      const cleaned = text.toLowerCase().replace(/\s/g, '');
+                      setUsername(cleaned);
+                    }}
+                    textAlign={isRTL ? 'right' : 'left'}
+                    placeholderTextColor="#94a3b8"
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                  {usernameStatus === 'checking' && (
+                    <View style={[styles.usernameIndicator, isRTL && styles.usernameIndicatorRTL]}>
+                      <ActivityIndicator size="small" color="#64748b" />
+                    </View>
+                  )}
+                  {usernameStatus === 'available' && (
+                    <View style={[styles.usernameIndicator, isRTL && styles.usernameIndicatorRTL]}>
+                      <Text style={styles.usernameCheckIcon}>✓</Text>
+                    </View>
+                  )}
+                  {(usernameStatus === 'taken' || usernameStatus === 'invalid') && (
+                    <View style={[styles.usernameIndicator, isRTL && styles.usernameIndicatorRTL]}>
+                      <Text style={styles.usernameErrorIcon}>✕</Text>
+                    </View>
+                  )}
+                </View>
+                {usernameStatus && usernameStatus !== 'checking' && usernameStatus !== 'available' && (
+                  <Text style={[styles.usernameErrorText, isRTL && styles.textRTL]}>
+                    {usernameError}
+                  </Text>
+                )}
+                {usernameStatus === 'available' && (
+                  <Text style={[styles.usernameSuccessText, isRTL && styles.textRTL]}>
+                    {t('usernameAvailable') || 'Username available'}
+                  </Text>
+                )}
+              </View>
+            </>
           )}
 
           <View style={styles.inputWrapper}>
             <TextInput
               style={[styles.input, isRTL && styles.inputRTL]}
-              placeholder={t('emailOrUsername')}
+              placeholder={isLogin ? "Email or Username" : "Email"}
               value={email}
               onChangeText={setEmail}
               textAlign={isRTL ? 'right' : 'left'}
               placeholderTextColor="#94a3b8"
-              keyboardType="email-address"
+              keyboardType={isLogin ? "default" : "email-address"}
               autoCapitalize="none"
+              autoCorrect={false}
             />
             {email.length > 0 && (
               <TouchableOpacity
@@ -134,7 +299,7 @@ export default function LoginRoute() {
           <View style={styles.inputWrapper}>
             <TextInput
               style={[styles.input, isRTL && styles.inputRTL]}
-              placeholder={t('password')}
+              placeholder={t('password') || 'Password'}
               value={password}
               onChangeText={setPassword}
               secureTextEntry={!showPassword}
@@ -185,7 +350,7 @@ export default function LoginRoute() {
         {/* Test Hint */}
         <Text style={[styles.testHint, isRTL && styles.testHintRTL]}>{t('testHint')}</Text>
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -199,7 +364,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     paddingHorizontal: 20,
     paddingTop: 120,
-    paddingBottom: 40,
+    paddingBottom: 100,
   },
   backButton: {
     width: 40,
@@ -277,6 +442,18 @@ const styles = StyleSheet.create({
   },
   inputContainer: {
     marginBottom: 20,
+  },
+  nameRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  nameRowRTL: {
+    flexDirection: 'row-reverse',
+  },
+  nameFieldWrapper: {
+    flex: 1,
+    marginBottom: 0,
   },
   inputWrapper: {
     position: 'relative',
@@ -407,6 +584,56 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   testHintRTL: {
+    textAlign: 'right',
+  },
+  usernameContainer: {
+    position: 'relative',
+  },
+  usernameIndicator: {
+    position: 'absolute',
+    right: 12,
+    top: '50%',
+    marginTop: -10,
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  usernameIndicatorRTL: {
+    right: 'auto',
+    left: 12,
+  },
+  usernameCheckIcon: {
+    fontSize: 16,
+    color: '#22c55e',
+    fontWeight: 'bold',
+  },
+  usernameErrorIcon: {
+    fontSize: 16,
+    color: '#ef4444',
+    fontWeight: 'bold',
+  },
+  inputValid: {
+    borderColor: '#22c55e',
+    borderWidth: 2,
+  },
+  inputInvalid: {
+    borderColor: '#ef4444',
+    borderWidth: 2,
+  },
+  usernameErrorText: {
+    color: '#ef4444',
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 4,
+  },
+  usernameSuccessText: {
+    color: '#22c55e',
+    fontSize: 12,
+    marginTop: 4,
+    marginLeft: 4,
+  },
+  textRTL: {
     textAlign: 'right',
   },
 });

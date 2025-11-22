@@ -68,12 +68,16 @@ export default function SettingsScreen() {
         <View style={[styles.profileSection, isRTL && styles.profileSectionRTL]}>
           <View style={styles.profileImage}>
             <Text style={styles.profileInitials}>
-              {getUserInitials(state.user?.name || 'John Doe')}
+              {getUserInitials(state.user?.profile?.name || state.user?.email || 'User')}
             </Text>
           </View>
           <View style={styles.profileInfo}>
-            <Text style={[styles.profileName, isRTL && styles.textRTL]}>{state.user?.name || 'John Doe'}</Text>
-            <Text style={[styles.profileEmail, isRTL && styles.textRTL]}>{state.user?.email || 'john.doe@email.com'}</Text>
+            <Text style={[styles.profileName, isRTL && styles.textRTL]}>
+              {state.user?.profile?.name || state.user?.email || 'User'}
+            </Text>
+            <Text style={[styles.profileEmail, isRTL && styles.textRTL]}>
+              {state.user?.email || state.user?.profile?.email || ''}
+            </Text>
           </View>
           <TouchableOpacity
             style={styles.editButton}

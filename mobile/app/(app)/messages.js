@@ -1,48 +1,50 @@
-import React, { useContext } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useContext, useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
+import * as DatabaseService from '../../src/services/databaseService';
 
 export default function MessagesScreen() {
   const { state } = useContext(AuthContext);
   const { t, isRTL } = useContext(LanguageContext);
   const router = useRouter();
 
-  // Sample chat data - in real app, fetch from API
-  const chats = [
-    {
-      id: 'CHAT001',
-      transactionId: 'TXN001',
-      transactionTitle: 'Website Development',
-      otherParty: 'Sarah Johnson',
-      lastMessage: 'I have completed the first milestone. Please review.',
-      lastMessageTime: '2 hours ago',
-      unreadCount: 2,
-      status: 'In Progress',
-    },
-    {
-      id: 'CHAT002',
-      transactionId: 'TXN002',
-      transactionTitle: 'Logo Design',
-      otherParty: 'Mike Chen',
-      lastMessage: 'Thank you for the payment!',
-      lastMessageTime: '1 day ago',
-      unreadCount: 0,
-      status: 'Completed',
-    },
-    {
-      id: 'CHAT003',
-      transactionId: 'TXN003',
-      transactionTitle: 'Mobile App Development',
-      otherParty: 'Emily Davis',
-      lastMessage: 'I need more clarification on the requirements.',
-      lastMessageTime: '3 hours ago',
-      unreadCount: 1,
-      status: 'In Dispute',
-    },
-  ];
+  const [chats, setChats] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchChats = useCallback(async () => {
+    if (!state.user?.id) {
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const result = await DatabaseService.getChatsForUser(state.user.id);
+      if (result.data) {
+        setChats(result.data);
+      } else if (result.error) {
+        console.error('Error fetching chats:', result.error);
+      }
+    } catch (error) {
+      console.error('Error fetching chats:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [state.user?.id]);
+
+  useEffect(() => {
+    fetchChats();
+  }, [fetchChats]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (state.user?.id) {
+        fetchChats();
+      }
+    }, [state.user?.id, fetchChats])
+  );
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -57,6 +59,18 @@ export default function MessagesScreen() {
     }
   };
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#3b82f6" />
+          <Text style={[styles.loadingText, isRTL && styles.textRTL]}>{t('loading') || 'Loading...'}</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -70,9 +84,9 @@ export default function MessagesScreen() {
         {chats.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateIcon}>💬</Text>
-            <Text style={[styles.emptyStateText, isRTL && styles.textRTL]}>{t('noMessages')}</Text>
+            <Text style={[styles.emptyStateText, isRTL && styles.textRTL]}>{t('noMessages') || 'No Messages'}</Text>
             <Text style={[styles.emptyStateSubtext, isRTL && styles.textRTL]}>
-              {t('noMessagesDesc')}
+              {t('noMessagesDesc') || 'You don\'t have any messages yet. Start a conversation from a transaction.'}
             </Text>
           </View>
         ) : (
@@ -291,5 +305,16 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: 'bold',
     color: '#ffffff',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#64748b',
   },
 });

@@ -1,11 +1,11 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { StatusBar } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as AuthSession from 'expo-auth-session';
-
+import * as DatabaseService from '../../src/services/databaseService';
 
 export default function HomeScreen() {
   const { state } = useContext(AuthContext);
@@ -17,18 +17,27 @@ export default function HomeScreen() {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [selectedRole, setSelectedRole] = useState(null);
   const [selectedStatus, setSelectedStatus] = useState(null);
+  const [transactions, setTransactions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [totalInEscrow, setTotalInEscrow] = useState(0);
+  const [incoming, setIncoming] = useState(0);
+  const [outgoing, setOutgoing] = useState(0);
   
   // --- Generate redirect URI for Expo Go ---
   const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
   console.log('Redirect URI for Expo Go:', redirectUri);
 
-  // Sample transaction data
-  const allTransactions = [
+  // Check if user is test user
+  const isTestUser = state.user?.email?.toLowerCase() === 'test@test.com' || 
+                     state.user?.profile?.email?.toLowerCase() === 'test@test.com';
+
+  // Test user hardcoded data
+  const testTransactions = [
     {
       id: 'TXN001',
       title: 'Website Development',
       startDate: 'Nov 15, 2025',
-      buyer: 'John Doe',
+      buyer: 'Test User',
       seller: 'Sarah Johnson',
       amount: 2500,
       status: 'In Progress',
@@ -39,7 +48,7 @@ export default function HomeScreen() {
       title: 'Logo Design',
       startDate: 'Nov 10, 2025',
       buyer: 'Mike Chen',
-      seller: 'John Doe',
+      seller: 'Test User',
       amount: 450,
       status: 'Completed',
       role: 'Seller',
@@ -48,7 +57,7 @@ export default function HomeScreen() {
       id: 'TXN003',
       title: 'Mobile App Development',
       startDate: 'Nov 20, 2025',
-      buyer: 'John Doe',
+      buyer: 'Test User',
       seller: 'Emily Davis',
       amount: 5000,
       status: 'In Dispute',
@@ -59,19 +68,146 @@ export default function HomeScreen() {
       title: 'Content Writing',
       startDate: 'Nov 5, 2025',
       buyer: 'Alex Brown',
-      seller: 'John Doe',
+      seller: 'Test User',
       amount: 800,
       status: 'Completed',
       role: 'Seller',
     },
   ];
 
-  const totalInEscrow = 5050.00;
-  const incoming = 3250.00;
-  const outgoing = 1800.00;
+  const testTotalInEscrow = 5050.00;
+  const testIncoming = 3250.00;
+  const testOutgoing = 1800.00;
+
+  // Get user display name from profile
+  const getUserDisplayName = useCallback(() => {
+    if (isTestUser) return 'Test User';
+    return state.user?.profile?.name || state.user?.email || 'User';
+  }, [isTestUser, state.user?.profile?.name, state.user?.email]);
+
+  const getUserFirstName = useCallback(() => {
+    if (isTestUser) return 'Test';
+    // Get first name from profile, or extract from name field, or use email
+    if (state.user?.profile?.first_name) {
+      return state.user.profile.first_name;
+    }
+    // If first_name not available, try to extract from name
+    if (state.user?.profile?.name) {
+      const nameParts = state.user.profile.name.split(' ');
+      return nameParts[0] || 'User';
+    }
+    return 'User';
+  }, [isTestUser, state.user?.profile?.first_name, state.user?.profile?.name]);
+
+  // Fetch transactions and wallet data
+  const fetchData = useCallback(async () => {
+      if (!state.user?.id) {
+        setLoading(false);
+        return;
+      }
+
+      // Use test data for test user
+      if (isTestUser) {
+        setTransactions(testTransactions);
+        setTotalInEscrow(testTotalInEscrow);
+        setIncoming(testIncoming);
+        setOutgoing(testOutgoing);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        // Fetch transactions
+        const transactionsResult = await DatabaseService.getTransactions(state.user.id);
+        if (transactionsResult.data) {
+          // Format transactions for display
+          const formattedTransactions = await Promise.all(
+            transactionsResult.data.map(async (txn) => {
+              // Get buyer and seller names
+              let buyerName = 'Buyer';
+              let sellerName = 'Seller';
+              
+              if (txn.buyer_id === state.user.id) {
+                buyerName = getUserDisplayName();
+              } else if (txn.buyer_profile?.name) {
+                buyerName = txn.buyer_profile.name;
+              } else if (txn.buyer_id) {
+                const buyerProfile = await DatabaseService.getUserProfile(txn.buyer_id);
+                buyerName = buyerProfile.data?.name || 'Buyer';
+              }
+              
+              if (txn.seller_id === state.user.id) {
+                sellerName = getUserDisplayName();
+              } else if (txn.seller_profile?.name) {
+                sellerName = txn.seller_profile.name;
+              } else if (txn.seller_id) {
+                const sellerProfile = await DatabaseService.getUserProfile(txn.seller_id);
+                sellerName = sellerProfile.data?.name || 'Seller';
+              }
+
+              return {
+                id: txn.id,
+                title: txn.title,
+                startDate: new Date(txn.start_date || txn.created_at).toLocaleDateString('en-US', { 
+                  month: 'short', 
+                  day: 'numeric', 
+                  year: 'numeric' 
+                }),
+                buyer: buyerName,
+                seller: sellerName,
+                buyerId: txn.buyer_id,
+                sellerId: txn.seller_id,
+                amount: parseFloat(txn.amount || 0),
+                status: txn.status || 'In Progress',
+                role: txn.buyer_id === state.user.id ? 'Buyer' : 'Seller',
+                category: txn.category,
+                feesResponsibility: txn.fees_responsibility,
+                deliveryDate: txn.delivery_date,
+                terms: txn.transaction_terms?.map(term => term.term) || [],
+              };
+            })
+          );
+          setTransactions(formattedTransactions);
+
+          // Calculate escrow totals
+          const inEscrow = formattedTransactions
+            .filter(t => t.status !== 'Completed' && t.status !== 'Cancelled')
+            .reduce((sum, t) => sum + t.amount, 0);
+          setTotalInEscrow(inEscrow);
+
+          const incomingAmount = formattedTransactions
+            .filter(t => t.role === 'Seller' && t.status !== 'Completed' && t.status !== 'Cancelled')
+            .reduce((sum, t) => sum + t.amount, 0);
+          setIncoming(incomingAmount);
+
+          const outgoingAmount = formattedTransactions
+            .filter(t => t.role === 'Buyer' && t.status !== 'Completed' && t.status !== 'Cancelled')
+            .reduce((sum, t) => sum + t.amount, 0);
+          setOutgoing(outgoingAmount);
+        }
+
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setLoading(false);
+      }
+    }, [state.user?.id, isTestUser, getUserDisplayName]);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // Refresh data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      if (state.user?.id) {
+        fetchData();
+      }
+    }, [state.user?.id, fetchData])
+  );
 
   const getUserInitials = (name) => {
-    if (!name) return 'JD';
+    if (!name) return 'U';
     const parts = name.split(' ');
     if (parts.length >= 2) {
       return (parts[0][0] + parts[1][0]).toUpperCase();
@@ -104,7 +240,7 @@ export default function HomeScreen() {
   };
 
   // Filter transactions based on selected filters
-  const filteredTransactions = allTransactions.filter((transaction) => {
+  const filteredTransactions = transactions.filter((transaction) => {
     if (selectedRole && transaction.role !== selectedRole) return false;
     if (selectedStatus && transaction.status !== selectedStatus) return false;
     return true;
@@ -128,6 +264,17 @@ export default function HomeScreen() {
     setSelectedStatus(null);
   };
 
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>{t('loading') || 'Loading...'}</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -137,12 +284,16 @@ export default function HomeScreen() {
           <View style={styles.profileSection}>
             <View style={styles.profileImage}>
               <Text style={styles.profileInitials}>
-                {getUserInitials(state.user?.name || 'John Doe')}
+                {getUserInitials(getUserDisplayName())}
               </Text>
             </View>
             <View style={styles.userInfo}>
-              <Text style={styles.userName}>{state.user?.name || 'John Doe'}</Text>
-              <Text style={styles.welcomeText}>{t('welcomeBack')}</Text>
+              <Text style={styles.welcomeText}>
+                {t('welcome') || 'Welcome'}, <Text style={styles.firstNameHighlight}>{getUserFirstName()}</Text>
+              </Text>
+              {state.user?.profile?.username && (
+                <Text style={styles.userUsername}>@{state.user.profile.username}</Text>
+              )}
             </View>
           </View>
         </View>
@@ -389,11 +540,22 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#0f172a',
+    marginBottom: 2,
+  },
+  userUsername: {
+    fontSize: 16,
+    color: '#64748b',
     marginBottom: 4,
+    fontWeight: '500',
   },
   welcomeText: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#64748b',
+  },
+  firstNameHighlight: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#0f172a',
   },
   escrowCard: {
     marginHorizontal: 20,
@@ -668,5 +830,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#dc2626',
     fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#64748b',
   },
 });

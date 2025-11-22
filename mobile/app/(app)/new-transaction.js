@@ -1,10 +1,16 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert } from 'react-native';
+import React, { useState, useContext, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, KeyboardAvoidingView, Platform } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
+import { AuthContext } from '../../src/context/AuthContext';
+import * as DatabaseService from '../../src/services/databaseService';
 
 export default function NewTransactionScreen() {
   const router = useRouter();
+  const { state } = useContext(AuthContext);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const scrollViewRef = useRef(null);
+  const deliveryDateInputRef = useRef(null);
   const [formData, setFormData] = useState({
     title: '',
     role: '',
@@ -64,25 +70,122 @@ export default function NewTransactionScreen() {
     setShowSummary(true);
   };
 
-  const handleConfirm = () => {
+  const handleConfirm = async () => {
     if (!formData.confirmed) {
       Alert.alert('Error', 'Please confirm that the information is correct');
       return;
     }
-    // Handle transaction creation
-    Alert.alert('Success', 'Transaction created successfully', [
-      { text: 'OK', onPress: () => router.back() }
-    ]);
+
+    if (!state.user?.id) {
+      Alert.alert('Error', 'You must be logged in to create a transaction');
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      // Parse delivery date
+      let deliveryDate = null;
+      if (formData.deliveryDate) {
+        // Try to parse the date (assuming MM/DD/YYYY format)
+        const dateParts = formData.deliveryDate.split('/');
+        if (dateParts.length === 3) {
+          deliveryDate = new Date(
+            parseInt(dateParts[2]),
+            parseInt(dateParts[0]) - 1,
+            parseInt(dateParts[1])
+          ).toISOString();
+        } else {
+          // Try parsing as ISO string or other format
+          deliveryDate = new Date(formData.deliveryDate).toISOString();
+        }
+      }
+
+      // Determine buyer_id and seller_id based on role
+      let buyerId = state.user.id;
+      let sellerId = state.user.id;
+
+      if (formData.userId && formData.userId.trim()) {
+        const otherPartyResult = await DatabaseService.findUserByIdentifier(formData.userId);
+        
+        if (otherPartyResult.error || !otherPartyResult.data) {
+          Alert.alert(
+            'User Not Found', 
+            otherPartyResult.error || 'Could not find the other user. Please check the User ID or Email and try again.',
+            [{ text: 'OK' }]
+          );
+          setIsSubmitting(false);
+          return;
+        }
+
+        const otherPartyId = otherPartyResult.data.id;
+
+        if (formData.role === 'Buyer') {
+          // Current user is buyer, other party is seller
+          sellerId = otherPartyId;
+        } else {
+          // Current user is seller, other party is buyer
+          buyerId = otherPartyId;
+        }
+      }
+
+      // Prepare transaction data
+      // Note: created_at is automatically set by createTransaction function
+      const transactionData = {
+        title: formData.title,
+        buyer_id: buyerId,
+        seller_id: sellerId,
+        amount: parseFloat(formData.amount),
+        category: formData.category,
+        fees_responsibility: formData.feesResponsibility,
+        delivery_date: deliveryDate,
+        status: 'pending', // or 'In Progress'
+        // Store terms as JSON or in a separate table
+        // For now, we'll store it as a text field if the schema supports it
+        terms: formData.terms,
+      };
+
+      // Create the transaction
+      const result = await DatabaseService.createTransaction(transactionData);
+
+      if (result.error) {
+        console.error('Transaction creation error:', result.error);
+        Alert.alert('Error', result.error || 'Failed to create transaction. Please try again.');
+        setIsSubmitting(false);
+        return;
+      }
+
+      // Success
+      Alert.alert('Success', 'Transaction created successfully', [
+        { 
+          text: 'OK', 
+          onPress: () => {
+            // Navigate back to home page which will refresh and show the new transaction
+            router.push('/(app)/home');
+          }
+        }
+      ]);
+    } catch (error) {
+      console.error('Error creating transaction:', error);
+      Alert.alert('Error', error.message || 'Failed to create transaction. Please try again.');
+      setIsSubmitting(false);
+    }
   };
 
   if (showSummary) {
     return (
       <View style={styles.container}>
         <StatusBar barStyle="dark-content" />
+        <KeyboardAvoidingView
+          style={styles.keyboardAvoidingView}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+        >
         <ScrollView 
         style={styles.scrollView} 
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
           <View style={styles.header}>
             <TouchableOpacity onPress={() => setShowSummary(false)} style={styles.backButton}>
@@ -140,15 +243,16 @@ export default function NewTransactionScreen() {
           </View>
 
           <TouchableOpacity
-            style={[styles.confirmButton, !formData.confirmed && styles.confirmButtonDisabled]}
-            disabled={!formData.confirmed}
+            style={[styles.confirmButton, (!formData.confirmed || isSubmitting) && styles.confirmButtonDisabled]}
+            disabled={!formData.confirmed || isSubmitting}
             onPress={handleConfirm}
           >
-            <Text style={[styles.confirmButtonText, !formData.confirmed && styles.confirmButtonTextDisabled]}>
-              Confirm Transaction
+            <Text style={[styles.confirmButtonText, (!formData.confirmed || isSubmitting) && styles.confirmButtonTextDisabled]}>
+              {isSubmitting ? 'Creating...' : 'Confirm Transaction'}
             </Text>
           </TouchableOpacity>
         </ScrollView>
+        </KeyboardAvoidingView>
       </View>
     );
   }
@@ -156,11 +260,18 @@ export default function NewTransactionScreen() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" />
-      <ScrollView 
-        style={styles.scrollView} 
-        contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+      <KeyboardAvoidingView
+        style={styles.keyboardAvoidingView}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
       >
+        <ScrollView 
+          ref={scrollViewRef}
+          style={styles.scrollView} 
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
         <View style={styles.header}>
           <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
             <Text style={styles.backIcon}>←</Text>
@@ -206,15 +317,17 @@ export default function NewTransactionScreen() {
             </View>
           </View>
 
-          {/* User ID Input */}
+          {/* User ID or Email Input */}
           <View style={styles.field}>
-            <Text style={styles.label}>User ID</Text>
+            <Text style={styles.label}>Other Party (User ID or Email)</Text>
             <TextInput
               style={styles.input}
               value={formData.userId}
               onChangeText={handleUserIdChange}
-              placeholder="Enter user ID"
+              placeholder="Enter user ID (UUID) or email"
               placeholderTextColor="#94a3b8"
+              autoCapitalize="none"
+              keyboardType="email-address"
             />
             {formData.userName && (
               <Text style={styles.maskedName}>{formData.userName}</Text>
@@ -309,11 +422,18 @@ export default function NewTransactionScreen() {
           <View style={styles.field}>
             <Text style={styles.label}>Delivery Date</Text>
             <TextInput
+              ref={deliveryDateInputRef}
               style={styles.input}
               value={formData.deliveryDate}
               onChangeText={(text) => setFormData({ ...formData, deliveryDate: text })}
               placeholder="MM/DD/YYYY"
               placeholderTextColor="#94a3b8"
+              onFocus={() => {
+                // Scroll to input when focused - scroll to end to ensure delivery date is visible
+                setTimeout(() => {
+                  scrollViewRef.current?.scrollToEnd({ animated: true });
+                }, 300);
+              }}
             />
           </View>
 
@@ -331,6 +451,7 @@ export default function NewTransactionScreen() {
           </TouchableOpacity>
         </View>
       </ScrollView>
+      </KeyboardAvoidingView>
     </View>
   );
 }
@@ -339,6 +460,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#ffffff',
+  },
+  keyboardAvoidingView: {
+    flex: 1,
   },
   scrollView: {
     flex: 1,

@@ -142,9 +142,51 @@ export const AuthProvider = ({ children }) => {
 
   const authContext = {
     state,
-    signIn: async (email, password) => {
+    signIn: async (emailOrUsername, password) => {
       try {
-        const result = await AuthService.signIn(email, password);
+        let emailToUse = emailOrUsername.trim();
+        
+        // Check if input is email or username
+        const isEmail = emailOrUsername.includes('@');
+        
+        // If it's not an email, treat it as username and look up the email
+        if (!isEmail) {
+          const username = emailOrUsername.trim().toLowerCase();
+          console.log('Looking up username:', username);
+          
+          // Use database function to lookup email by username (bypasses RLS)
+          const { data: profileData, error: profileError } = await supabase
+            .rpc('get_email_by_username', { username_input: username });
+          
+          console.log('Username lookup result:', { profileData, profileError });
+          
+          if (profileError) {
+            console.error('Profile lookup error:', profileError);
+            return { 
+              error: `Database error: ${profileError.message}. Please try again.`, 
+              token: null, 
+              user: null 
+            };
+          }
+          
+          // RPC returns an array, get first result
+          const profile = Array.isArray(profileData) && profileData.length > 0 ? profileData[0] : null;
+          
+          if (!profile || !profile.email) {
+            console.log('User not found for username:', username);
+            return { 
+              error: 'Invalid username or password. Please check your credentials and try again.', 
+              token: null, 
+              user: null 
+            };
+          }
+          
+          console.log('Found email for username:', profile.email);
+          emailToUse = profile.email;
+        }
+        
+        console.log('Signing in with email:', emailToUse);
+        const result = await AuthService.signIn(emailToUse, password);
         
         if (result.error) {
           return { error: result.error, token: null, user: null };
@@ -192,9 +234,19 @@ export const AuthProvider = ({ children }) => {
         return { error: error.message || 'Failed to sign out' };
       }
     },
-    signUp: async (name, email, password) => {
+    signUp: async (firstName, lastName, username, email, password) => {
       try {
-        const result = await AuthService.signUp(email, password, { name });
+        // Construct full name from first and last name
+        const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+        
+        // Pass first_name, last_name, username, and name as metadata to Supabase Auth
+        // This metadata will be available in the database trigger
+        const result = await AuthService.signUp(email, password, { 
+          name: fullName,
+          first_name: firstName.trim(),
+          last_name: lastName.trim(),
+          username: username.toLowerCase().trim(),
+        });
         
         if (result.error) {
           // Provide user-friendly error messages
@@ -211,21 +263,78 @@ export const AuthProvider = ({ children }) => {
 
         if (result.user) {
           try {
-            // Create user profile (may fail if trigger already created it)
-            const profileResult = await DatabaseService.createUserProfile({
+            // Construct full name from first and last name (already done above, but ensure it's available)
+            const fullName = [firstName, lastName].filter(Boolean).join(' ').trim();
+            
+            console.log('SignUp - Preparing profile data:', {
               id: result.user.id,
-              name: name,
+              firstName: firstName.trim(),
+              lastName: lastName.trim(),
+              username: username.toLowerCase().trim(),
               email: email,
-              created_at: new Date().toISOString(),
+              fullName: fullName,
             });
             
-            // Only create wallet if profile creation succeeded (or if profile already exists)
-            if (!profileResult.error || profileResult.error.includes('duplicate')) {
-              // Create wallet for user (may also already exist from trigger)
-              await DatabaseService.createWallet(result.user.id, 0).catch(() => {
-                // Wallet might already exist from trigger
-                console.log('Wallet might already exist');
+            // Wait a bit to ensure any database triggers have finished
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Always update the profile (trigger might have created it with default values)
+            // Try multiple times to ensure it works
+            let updateResult = null;
+            let attempts = 0;
+            const maxAttempts = 3;
+            
+            while (attempts < maxAttempts && (!updateResult || updateResult.error)) {
+              attempts++;
+              console.log(`Updating profile (attempt ${attempts}/${maxAttempts})...`);
+              
+              updateResult = await DatabaseService.updateUserProfile(result.user.id, {
+                name: fullName,
+                first_name: firstName.trim(),
+                last_name: lastName.trim(),
+                username: username.toLowerCase().trim(),
+                email: email.toLowerCase().trim(),
               });
+              
+              if (updateResult.error) {
+                console.error(`Profile update attempt ${attempts} failed:`, updateResult.error);
+                if (attempts < maxAttempts) {
+                  // Wait longer between retries
+                  await new Promise(resolve => setTimeout(resolve, 1000 * attempts));
+                }
+              } else {
+                console.log('Profile updated successfully:', updateResult.data);
+                break;
+              }
+            }
+            
+            // If update still failed, try to create the profile
+            if (updateResult.error) {
+              console.log('All update attempts failed, trying to create profile...');
+              const profileResult = await DatabaseService.createUserProfile({
+                id: result.user.id,
+                name: fullName,
+                first_name: firstName.trim(),
+                last_name: lastName.trim(),
+                username: username.toLowerCase().trim(),
+                email: email.toLowerCase().trim(),
+                created_at: new Date().toISOString(),
+              });
+              
+              if (profileResult.error) {
+                console.error('Profile creation also failed:', profileResult.error);
+              } else {
+                console.log('Profile created successfully:', profileResult.data);
+              }
+            }
+            
+            // Create wallet for user (may also already exist from trigger)
+            const walletResult = await DatabaseService.createWallet(result.user.id, 0);
+            if (walletResult.error && 
+                !walletResult.error.includes('duplicate') && 
+                !walletResult.error.includes('already exists') &&
+                !walletResult.error.includes('unique constraint')) {
+              console.error('Wallet creation error:', walletResult.error);
             }
           } catch (profileError) {
             console.log('Profile/wallet creation error (might already exist):', profileError);
@@ -254,12 +363,13 @@ export const AuthProvider = ({ children }) => {
               error: null,
             };
           } else {
-            // Email confirmation required
+            // User created but email verification required (no session)
             return {
-              error: null,
-              token: null,
               user: result.user,
-              message: 'Please check your email to verify your account before signing in.',
+              token: null,
+              session: null,
+              error: null,
+              message: 'Please check your email to verify your account.',
             };
           }
         }

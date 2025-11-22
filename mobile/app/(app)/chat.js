@@ -1,10 +1,11 @@
-import React, { useState, useContext, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useContext, useRef, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
+import * as DatabaseService from '../../src/services/databaseService';
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -12,82 +13,169 @@ export default function ChatScreen() {
   const { state } = useContext(AuthContext);
   const { t, isRTL } = useContext(LanguageContext);
   const [message, setMessage] = useState('');
+  const [messages, setMessages] = useState([]);
+  const [chatInfo, setChatInfo] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
   const scrollViewRef = useRef(null);
   const insets = useSafeAreaInsets();
 
-  // Sample chat data - in real app, fetch from API
-  const chatInfo = {
-    transactionId: transactionId || 'TXN001',
-    transactionTitle: 'Website Development',
-    otherParty: 'Sarah Johnson',
-    otherPartyId: 'USER456',
-  };
+  const fetchChatData = useCallback(async () => {
+    if (!transactionId || !state.user?.id) {
+      setLoading(false);
+      return;
+    }
 
-  // Sample messages - in real app, fetch from API
-  const [messages, setMessages] = useState([
-    {
-      id: 'MSG001',
-      senderId: 'USER123',
-      senderName: 'You',
-      text: 'Hello, I wanted to discuss the project timeline.',
-      timestamp: '10:30 AM',
-      isMe: true,
-    },
-    {
-      id: 'MSG002',
-      senderId: 'USER456',
-      senderName: chatInfo.otherParty,
-      text: 'Hi! Sure, I can provide an update. The first milestone is almost complete.',
-      timestamp: '10:32 AM',
-      isMe: false,
-    },
-    {
-      id: 'MSG003',
-      senderId: 'USER123',
-      senderName: 'You',
-      text: 'That sounds great! When do you expect to finish?',
-      timestamp: '10:33 AM',
-      isMe: true,
-    },
-    {
-      id: 'MSG004',
-      senderId: 'USER456',
-      senderName: chatInfo.otherParty,
-      text: 'I should have it ready by tomorrow. I will send it for your review.',
-      timestamp: '10:35 AM',
-      isMe: false,
-    },
-  ]);
+    try {
+      // Fetch transaction details
+      const transactionResult = await DatabaseService.getTransaction(transactionId);
+      if (!transactionResult.data) {
+        setLoading(false);
+        return;
+      }
+
+      const txn = transactionResult.data;
+      const userRole = txn.buyer_id === state.user.id ? 'Buyer' : 'Seller';
+      const otherPartyId = txn.buyer_id === state.user.id ? txn.seller_id : txn.buyer_id;
+
+      // Fetch other party profile
+      let otherPartyName = 'User';
+      if (otherPartyId) {
+        const otherPartyProfile = await DatabaseService.getUserProfile(otherPartyId);
+        otherPartyName = otherPartyProfile.data?.name || (userRole === 'Buyer' ? 'Seller' : 'Buyer');
+      }
+
+      setChatInfo({
+        transactionId: txn.id,
+        transactionTitle: txn.title,
+        otherParty: otherPartyName,
+        otherPartyId: otherPartyId,
+      });
+
+      // Fetch messages
+      const messagesResult = await DatabaseService.getMessages(transactionId);
+      if (messagesResult.data) {
+        const formattedMessages = messagesResult.data.map((msg) => {
+          const isMe = msg.sender_id === state.user.id;
+          const senderName = isMe ? 'You' : (msg.sender_profile?.name || otherPartyName);
+          const messageDate = new Date(msg.created_at);
+          const timestamp = messageDate.toLocaleTimeString('en-US', { 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          });
+
+          return {
+            id: msg.id,
+            senderId: msg.sender_id,
+            senderName: senderName,
+            text: msg.message,
+            timestamp: timestamp,
+            isMe: isMe,
+          };
+        });
+        setMessages(formattedMessages);
+
+        // Mark messages as read
+        await DatabaseService.markMessagesAsRead(transactionId, state.user.id);
+      }
+    } catch (error) {
+      console.error('Error fetching chat data:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [transactionId, state.user?.id]);
+
+  useEffect(() => {
+    fetchChatData();
+  }, [fetchChatData]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (transactionId && state.user?.id) {
+        fetchChatData();
+      }
+    }, [transactionId, state.user?.id, fetchChatData])
+  );
 
   // Auto-scroll to bottom when messages change
   useEffect(() => {
-    if (scrollViewRef.current) {
+    if (scrollViewRef.current && messages.length > 0) {
       setTimeout(() => {
         scrollViewRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
   }, [messages]);
 
-  const handleSend = () => {
-    if (!message.trim()) return;
+  const handleSend = async () => {
+    if (!message.trim() || !transactionId || !state.user?.id || sending) return;
 
-    const newMessage = {
-      id: `MSG${Date.now()}`,
-      senderId: state.user?.id || 'USER123',
+    const messageText = message.trim();
+    setMessage('');
+    setSending(true);
+
+    // Optimistically add message to UI
+    const tempMessage = {
+      id: `temp_${Date.now()}`,
+      senderId: state.user.id,
       senderName: 'You',
-      text: message.trim(),
+      text: messageText,
       timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
       isMe: true,
     };
+    setMessages(prev => [...prev, tempMessage]);
 
-    setMessages([...messages, newMessage]);
-    setMessage('');
-    
-    // Scroll to bottom after sending
-    setTimeout(() => {
-      scrollViewRef.current?.scrollToEnd({ animated: true });
-    }, 100);
+    try {
+      const result = await DatabaseService.sendMessage({
+        transaction_id: transactionId,
+        sender_id: state.user.id,
+        message: messageText,
+      });
+
+      if (result.data) {
+        // Replace temp message with real message
+        const realMessage = {
+          id: result.data.id,
+          senderId: result.data.sender_id,
+          senderName: 'You',
+          text: result.data.message,
+          timestamp: new Date(result.data.created_at).toLocaleTimeString('en-US', { 
+            hour: '2-digit', 
+            minute: '2-digit' 
+          }),
+          isMe: true,
+        };
+        setMessages(prev => prev.map(msg => msg.id === tempMessage.id ? realMessage : msg));
+      } else if (result.error) {
+        // Remove temp message on error
+        setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
+        setMessage(messageText); // Restore message text
+        console.error('Error sending message:', result.error);
+      }
+    } catch (error) {
+      // Remove temp message on error
+      setMessages(prev => prev.filter(msg => msg.id !== tempMessage.id));
+      setMessage(messageText); // Restore message text
+      console.error('Error sending message:', error);
+    } finally {
+      setSending(false);
+      // Scroll to bottom after sending
+      setTimeout(() => {
+        scrollViewRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+    }
   };
+
+  if (loading || !chatInfo) {
+    return (
+      <View style={styles.safeArea}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#3b82f6" />
+          <Text style={[styles.loadingText, isRTL && styles.textRTL]}>{t('loading') || 'Loading...'}</Text>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.safeArea}>
@@ -121,40 +209,52 @@ export default function ChatScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          {messages.map((msg) => (
-            <View
-              key={msg.id}
-              style={[
-                styles.messageWrapper,
-                msg.isMe ? styles.messageWrapperMe : styles.messageWrapperOther,
-                isRTL && (msg.isMe ? styles.messageWrapperMeRTL : styles.messageWrapperOtherRTL)
-              ]}
-            >
+          {messages.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateIcon}>💬</Text>
+              <Text style={[styles.emptyStateText, isRTL && styles.textRTL]}>
+                {t('noMessages') || 'No messages yet'}
+              </Text>
+              <Text style={[styles.emptyStateSubtext, isRTL && styles.textRTL]}>
+                {t('startConversation') || 'Start the conversation by sending a message.'}
+              </Text>
+            </View>
+          ) : (
+            messages.map((msg) => (
               <View
+                key={msg.id}
                 style={[
-                  styles.messageBubble,
-                  msg.isMe ? styles.messageBubbleMe : styles.messageBubbleOther
+                  styles.messageWrapper,
+                  msg.isMe ? styles.messageWrapperMe : styles.messageWrapperOther,
+                  isRTL && (msg.isMe ? styles.messageWrapperMeRTL : styles.messageWrapperOtherRTL)
                 ]}
               >
-                {!msg.isMe && (
-                  <Text style={styles.messageSender}>{msg.senderName}</Text>
-                )}
-                <Text style={[
-                  styles.messageText,
-                  msg.isMe ? styles.messageTextMe : styles.messageTextOther,
-                  isRTL && styles.textRTL
-                ]}>
-                  {msg.text}
-                </Text>
-                <Text style={[
-                  styles.messageTime,
-                  msg.isMe ? styles.messageTimeMe : styles.messageTimeOther
-                ]}>
-                  {msg.timestamp}
-                </Text>
+                <View
+                  style={[
+                    styles.messageBubble,
+                    msg.isMe ? styles.messageBubbleMe : styles.messageBubbleOther
+                  ]}
+                >
+                  {!msg.isMe && (
+                    <Text style={styles.messageSender}>{msg.senderName}</Text>
+                  )}
+                  <Text style={[
+                    styles.messageText,
+                    msg.isMe ? styles.messageTextMe : styles.messageTextOther,
+                    isRTL && styles.textRTL
+                  ]}>
+                    {msg.text}
+                  </Text>
+                  <Text style={[
+                    styles.messageTime,
+                    msg.isMe ? styles.messageTimeMe : styles.messageTimeOther
+                  ]}>
+                    {msg.timestamp}
+                  </Text>
+                </View>
               </View>
-            </View>
-          ))}
+            ))
+          )}
         </ScrollView>
 
         {/* Input Area */}
@@ -170,13 +270,18 @@ export default function ChatScreen() {
             returnKeyType="send"
             onSubmitEditing={handleSend}
             blurOnSubmit={false}
+            editable={!sending}
           />
           <TouchableOpacity
-            style={[styles.sendButton, !message.trim() && styles.sendButtonDisabled]}
+            style={[styles.sendButton, (!message.trim() || sending) && styles.sendButtonDisabled]}
             onPress={handleSend}
-            disabled={!message.trim()}
+            disabled={!message.trim() || sending}
           >
-            <Text style={styles.sendButtonText}>→</Text>
+            {sending ? (
+              <ActivityIndicator size="small" color="#ffffff" />
+            ) : (
+              <Text style={styles.sendButtonText}>→</Text>
+            )}
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -350,6 +455,39 @@ const styles = StyleSheet.create({
     fontSize: 20,
     color: '#ffffff',
     fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#64748b',
+  },
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+    paddingHorizontal: 40,
+  },
+  emptyStateIcon: {
+    fontSize: 64,
+    marginBottom: 16,
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#0f172a',
+    marginBottom: 8,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: '#64748b',
+    textAlign: 'center',
   },
 });
 

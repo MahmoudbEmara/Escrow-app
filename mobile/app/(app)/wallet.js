@@ -1,20 +1,27 @@
-import React, { useContext } from 'react';
+import React, { useContext, useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
+import * as DatabaseService from '../../src/services/databaseService';
 
 export default function WalletScreen() {
   const { state } = useContext(AuthContext);
   const { t, isRTL } = useContext(LanguageContext);
   const router = useRouter();
 
-  const availableBalance = 3850.00;
-  const escrowBalance = 5050.00;
+  const [availableBalance, setAvailableBalance] = useState(0);
+  const [paymentHistory, setPaymentHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
 
-  // Sample payment history
-  const paymentHistory = [
+  // Check if user is test user
+  const isTestUser = state.user?.email?.toLowerCase() === 'test@test.com' || 
+                     state.user?.profile?.email?.toLowerCase() === 'test@test.com';
+
+  // Test user hardcoded data
+  const testAvailableBalance = 3850.00;
+  const testPaymentHistory = [
     {
       id: 1,
       name: 'Bank Transfer',
@@ -45,6 +52,67 @@ export default function WalletScreen() {
     },
   ];
 
+  // Fetch wallet data
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!state.user?.id) {
+        setLoading(false);
+        return;
+      }
+
+      // Use test data for test user
+      if (isTestUser) {
+        setAvailableBalance(testAvailableBalance);
+        setPaymentHistory(testPaymentHistory);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        // Fetch wallet
+        const walletResult = await DatabaseService.getUserWallet(state.user.id);
+        if (walletResult.data) {
+          setAvailableBalance(parseFloat(walletResult.data.available_balance || walletResult.data.balance || 0));
+        }
+
+        // Fetch payment history
+        const historyResult = await DatabaseService.getTransactionHistory(state.user.id);
+        if (historyResult.data) {
+          const formattedHistory = historyResult.data.map(item => ({
+            id: item.id,
+            name: item.description || item.name || 'Transaction',
+            date: new Date(item.created_at || item.date).toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric', 
+              year: 'numeric' 
+            }),
+            amount: parseFloat(item.amount || 0),
+            type: item.type || (item.amount >= 0 ? 'credit' : 'debit'),
+          }));
+          setPaymentHistory(formattedHistory);
+        }
+
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching wallet data:', error);
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [state.user?.id, isTestUser]);
+
+  if (loading) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>{t('loading') || 'Loading...'}</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" />
@@ -58,12 +126,6 @@ export default function WalletScreen() {
         <View style={styles.balanceCard}>
           <Text style={[styles.balanceLabel, isRTL && styles.textRTL]}>{t('availableBalance')}</Text>
           <Text style={[styles.balanceAmount, isRTL && styles.textRTL]}>${availableBalance.toFixed(2)}</Text>
-        </View>
-
-        {/* Escrow Balance */}
-        <View style={styles.escrowBalanceCard}>
-          <Text style={[styles.escrowBalanceLabel, isRTL && styles.textRTL]}>{t('escrowBalance')}</Text>
-          <Text style={[styles.escrowBalanceAmount, isRTL && styles.textRTL]}>${escrowBalance.toFixed(2)}</Text>
         </View>
 
         {/* Action Buttons */}
@@ -159,23 +221,6 @@ const styles = StyleSheet.create({
     fontSize: 36,
     fontWeight: 'bold',
     color: '#ffffff',
-  },
-  escrowBalanceCard: {
-    marginHorizontal: 20,
-    marginBottom: 24,
-    padding: 16,
-    borderRadius: 12,
-    backgroundColor: '#f3f4f6',
-  },
-  escrowBalanceLabel: {
-    fontSize: 14,
-    color: '#64748b',
-    marginBottom: 4,
-  },
-  escrowBalanceAmount: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#0f172a',
   },
   actionButtons: {
     flexDirection: 'row',
@@ -300,6 +345,16 @@ const styles = StyleSheet.create({
   },
   historyLeftRTL: {
     flexDirection: 'row-reverse',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#64748b',
   },
 });
 

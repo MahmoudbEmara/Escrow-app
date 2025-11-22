@@ -1,23 +1,30 @@
-import React, { useState, useContext } from 'react';
+import React, { useState, useContext, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
+import * as DatabaseService from '../../src/services/databaseService';
 
 export default function TransactionDetailsScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams();
   const { state } = useContext(AuthContext);
   const { t, isRTL } = useContext(LanguageContext);
+  const [transaction, setTransaction] = useState(null);
+  const [loading, setLoading] = useState(true);
 
-  // Sample transaction data - in real app, fetch by ID
-  const transaction = {
+  // Check if user is test user
+  const isTestUser = state.user?.email?.toLowerCase() === 'test@test.com' || 
+                     state.user?.profile?.email?.toLowerCase() === 'test@test.com';
+
+  // Test user hardcoded data
+  const testTransaction = {
     id: id || 'TXN001',
     title: 'Website Development',
     startDate: 'Nov 15, 2025',
     deliveryDate: 'Dec 15, 2025',
-    buyer: 'John Doe',
+    buyer: 'Test User',
     seller: 'Sarah Johnson',
     buyerId: 'USER123',
     sellerId: 'USER456',
@@ -33,6 +40,90 @@ export default function TransactionDetailsScreen() {
       '3 months of free maintenance',
     ],
   };
+
+  // Fetch transaction data
+  useEffect(() => {
+    const fetchTransaction = async () => {
+      if (!id) {
+        setLoading(false);
+        return;
+      }
+
+      // Use test data for test user
+      if (isTestUser) {
+        setTransaction(testTransaction);
+        setLoading(false);
+        return;
+      }
+
+      try {
+        const result = await DatabaseService.getTransaction(id);
+        if (result.data) {
+          const txn = result.data;
+          const userRole = txn.buyer_id === state.user?.id ? 'Buyer' : 'Seller';
+          
+          // Fetch buyer and seller profiles for names
+          let buyerName = 'Buyer';
+          let sellerName = 'Seller';
+          
+          if (txn.buyer_id) {
+            const buyerProfile = await DatabaseService.getUserProfile(txn.buyer_id);
+            buyerName = buyerProfile.data?.name || 'Buyer';
+          }
+          
+          if (txn.seller_id) {
+            const sellerProfile = await DatabaseService.getUserProfile(txn.seller_id);
+            sellerName = sellerProfile.data?.name || 'Seller';
+          }
+
+          // Convert terms to array - handle both string and array formats
+          let termsArray = [];
+          if (txn.transaction_terms && Array.isArray(txn.transaction_terms)) {
+            // If it's an array of objects with 'term' property
+            termsArray = txn.transaction_terms.map(term => term.term || term);
+          } else if (txn.terms) {
+            // If it's a string, split by newlines
+            if (typeof txn.terms === 'string') {
+              termsArray = txn.terms.split('\n').filter(term => term.trim() !== '');
+            } else if (Array.isArray(txn.terms)) {
+              termsArray = txn.terms;
+            }
+          }
+
+          setTransaction({
+            id: txn.id,
+            title: txn.title,
+            startDate: new Date(txn.start_date || txn.created_at).toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric', 
+              year: 'numeric' 
+            }),
+            deliveryDate: txn.delivery_date ? new Date(txn.delivery_date).toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric', 
+              year: 'numeric' 
+            }) : null,
+            buyer: buyerName,
+            seller: sellerName,
+            buyerId: txn.buyer_id,
+            sellerId: txn.seller_id,
+            amount: parseFloat(txn.amount || 0),
+            status: txn.status || 'In Progress',
+            role: userRole,
+            category: txn.category,
+            feesResponsibility: txn.fees_responsibility,
+            terms: termsArray,
+          });
+        }
+        setLoading(false);
+      } catch (error) {
+        console.error('Error fetching transaction:', error);
+        setLoading(false);
+      }
+    };
+
+    fetchTransaction();
+  }, [id, state.user?.id, isTestUser]);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -96,6 +187,17 @@ export default function TransactionDetailsScreen() {
       ]
     );
   };
+
+  if (loading || !transaction) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" />
+        <View style={styles.loadingContainer}>
+          <Text style={styles.loadingText}>{t('loading') || 'Loading...'}</Text>
+        </View>
+      </View>
+    );
+  }
 
   const statusColors = getStatusColor(transaction.status);
   const roleColors = getRoleColor(transaction.role);
@@ -378,6 +480,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#ffffff',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingTop: 100,
+  },
+  loadingText: {
+    fontSize: 16,
+    color: '#64748b',
   },
 });
 

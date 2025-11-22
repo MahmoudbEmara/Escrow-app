@@ -68,6 +68,8 @@ export const fetchFromTable = async (table, options = {}) => {
  */
 export const insertIntoTable = async (table, data) => {
   try {
+    console.log(`Attempting to insert into ${table}:`, JSON.stringify(data, null, 2));
+    
     const { data: result, error } = await supabase
       .from(table)
       .insert(data)
@@ -75,9 +77,16 @@ export const insertIntoTable = async (table, data) => {
       .single();
 
     if (error) {
+      console.error(`Insert into ${table} error details:`, {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
       throw error;
     }
 
+    console.log(`Successfully inserted into ${table}:`, result);
     return {
       data: result,
       error: null,
@@ -160,15 +169,82 @@ export const deleteFromTable = async (table, id) => {
  * @returns {Promise<object>} - Transactions list
  */
 export const getTransactions = async (userId, options = {}) => {
-  return fetchFromTable('transactions', {
-    filter: {
-      ...(userId && { user_id: userId }),
-      ...options.filter,
-    },
-    orderBy: options.orderBy || { column: 'created_at', ascending: false },
-    limit: options.limit || 50,
-    ...options,
-  });
+  try {
+    if (!userId) {
+      return { data: [], error: null };
+    }
+
+    // Try to fetch with joined profiles, fallback to basic query
+    let query = supabase
+      .from('transactions')
+      .select(`
+        *,
+        buyer_profile:profiles!buyer_id(id, name, email),
+        seller_profile:profiles!seller_id(id, name, email)
+      `)
+      .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`);
+
+    // Apply ordering
+    if (options.orderBy) {
+      query = query.order(options.orderBy.column, {
+        ascending: options.orderBy.ascending !== false,
+      });
+    } else {
+      query = query.order('created_at', { ascending: false });
+    }
+
+    // Apply limit
+    if (options.limit) {
+      query = query.limit(options.limit);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      // Fallback to basic query if join fails
+      console.warn('Join query failed, using basic query:', error);
+      let basicQuery = supabase
+        .from('transactions')
+        .select('*')
+        .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
+        .order('created_at', { ascending: false })
+        .limit(options.limit || 50);
+
+      const { data: basicData, error: basicError } = await basicQuery;
+      
+      if (basicError) {
+        throw basicError;
+      }
+
+      // Map transactions to include role based on user
+      const mappedData = (basicData || []).map(transaction => ({
+        ...transaction,
+        role: transaction.buyer_id === userId ? 'Buyer' : 'Seller',
+      }));
+
+      return {
+        data: mappedData,
+        error: null,
+      };
+    }
+
+    // Map transactions to include role based on user
+    const mappedData = (data || []).map(transaction => ({
+      ...transaction,
+      role: transaction.buyer_id === userId ? 'Buyer' : 'Seller',
+    }));
+
+    return {
+      data: mappedData,
+      error: null,
+    };
+  } catch (error) {
+    console.error('Get transactions error:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to get transactions',
+    };
+  }
 };
 
 /**
@@ -232,33 +308,306 @@ export const updateTransactionStatus = async (transactionId, status, additionalU
 // ==================== MESSAGES ====================
 
 /**
+ * Get all chats for a user (grouped by transaction)
+ * @param {string} userId - User ID
+ * @returns {Promise<object>} - Chats list with transaction info
+ */
+export const getChatsForUser = async (userId) => {
+  try {
+    // Get all transactions where user is buyer or seller
+    let transactions;
+    let txnError;
+    
+    // Try with join first
+    const { data: transactionsWithJoin, error: joinError } = await supabase
+      .from('transactions')
+      .select('id, title, status, buyer_id, seller_id, created_at, buyer_profile:buyer_id(name), seller_profile:seller_id(name)')
+      .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
+      .order('created_at', { ascending: false });
+
+    if (joinError) {
+      // If join fails, try without join
+      const { data: transactionsWithoutJoin, error: noJoinError } = await supabase
+        .from('transactions')
+        .select('id, title, status, buyer_id, seller_id, created_at')
+        .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
+        .order('created_at', { ascending: false });
+      
+      transactions = transactionsWithoutJoin;
+      txnError = noJoinError;
+    } else {
+      transactions = transactionsWithJoin;
+    }
+
+    if (txnError) {
+      throw txnError;
+    }
+
+    if (!transactions || transactions.length === 0) {
+      return { data: [], error: null };
+    }
+
+    // For each transaction, get the last message and unread count
+    const chats = await Promise.all(
+      transactions.map(async (txn) => {
+        // Determine the other party
+        const otherPartyId = txn.buyer_id === userId ? txn.seller_id : txn.buyer_id;
+        let otherPartyName = 'User';
+        
+        // Try to get name from join, otherwise fetch separately
+        if (txn.buyer_id === userId) {
+          otherPartyName = txn.seller_profile?.name || 'Seller';
+        } else {
+          otherPartyName = txn.buyer_profile?.name || 'Buyer';
+        }
+
+        // If name not available from join, fetch profile separately
+        if (otherPartyName === 'Seller' || otherPartyName === 'Buyer') {
+          try {
+            const profileResult = await getUserProfile(otherPartyId);
+            if (profileResult.data?.name) {
+              otherPartyName = profileResult.data.name;
+            }
+          } catch (error) {
+            // Keep default name if profile fetch fails
+            console.error('Error fetching profile for chat:', error);
+          }
+        }
+
+        // Get last message
+        let lastMessageData = null;
+        try {
+          const { data } = await supabase
+            .from('messages')
+            .select('id, message, sender_id, created_at')
+            .eq('transaction_id', txn.id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          lastMessageData = data;
+        } catch (error) {
+          // If messages table doesn't exist or error, continue without last message
+          console.error('Error fetching last message:', error);
+        }
+
+        // Get unread count (messages not read by current user)
+        // Note: This assumes a read_at column exists. If not, unread count will be 0
+        let unreadCount = 0;
+        try {
+          // Try to get unread count if read_at column exists
+          const { count, error: countError } = await supabase
+            .from('messages')
+            .select('*', { count: 'exact', head: true })
+            .eq('transaction_id', txn.id)
+            .eq('sender_id', otherPartyId)
+            .is('read_at', null);
+          
+          if (!countError) {
+            unreadCount = count || 0;
+          }
+          // If read_at column doesn't exist, error will be caught and unreadCount stays 0
+        } catch (error) {
+          // If read_at column doesn't exist or other error, set unread to 0
+          // This is expected if the column hasn't been added to the database yet
+        }
+
+        const lastMessage = lastMessageData;
+
+        // Format last message time
+        let lastMessageTime = 'No messages';
+        if (lastMessage) {
+          const messageDate = new Date(lastMessage.created_at);
+          const now = new Date();
+          const diffMs = now - messageDate;
+          const diffMins = Math.floor(diffMs / 60000);
+          const diffHours = Math.floor(diffMs / 3600000);
+          const diffDays = Math.floor(diffMs / 86400000);
+
+          if (diffMins < 1) {
+            lastMessageTime = 'Just now';
+          } else if (diffMins < 60) {
+            lastMessageTime = `${diffMins} ${diffMins === 1 ? 'minute' : 'minutes'} ago`;
+          } else if (diffHours < 24) {
+            lastMessageTime = `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
+          } else if (diffDays < 7) {
+            lastMessageTime = `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
+          } else {
+            lastMessageTime = messageDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+          }
+        }
+
+        return {
+          id: `CHAT${txn.id}`,
+          transactionId: txn.id,
+          transactionTitle: txn.title,
+          otherParty: otherPartyName,
+          otherPartyId: otherPartyId,
+          lastMessage: lastMessage?.message || '',
+          lastMessageTime: lastMessageTime,
+          unreadCount: unreadCount,
+          status: txn.status || 'pending',
+        };
+      })
+    );
+
+    return { data: chats, error: null };
+  } catch (error) {
+    console.error('Get chats for user error:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to fetch chats',
+    };
+  }
+};
+
+/**
  * Get messages for a transaction
  * @param {string} transactionId - Transaction ID
  * @param {object} options - Query options
  * @returns {Promise<object>} - Messages list
  */
 export const getMessages = async (transactionId, options = {}) => {
-  return fetchFromTable('messages', {
-    filter: {
-      transaction_id: transactionId,
-      ...options.filter,
-    },
-    orderBy: options.orderBy || { column: 'created_at', ascending: true },
-    limit: options.limit || 100,
-    ...options,
-  });
+  try {
+    const { data, error } = await supabase
+      .from('messages')
+      .select('id, transaction_id, sender_id, message, created_at')
+      .eq('transaction_id', transactionId)
+      .order('created_at', { ascending: true })
+      .limit(options.limit || 100);
+
+    if (error) {
+      throw error;
+    }
+
+    // Fetch sender profiles separately if needed
+    if (data && data.length > 0) {
+      const senderIds = [...new Set(data.map(msg => msg.sender_id))];
+      const profiles = await Promise.all(
+        senderIds.map(async (senderId) => {
+          try {
+            const profileResult = await getUserProfile(senderId);
+            return { id: senderId, name: profileResult.data?.name || null };
+          } catch (error) {
+            return { id: senderId, name: null };
+          }
+        })
+      );
+
+      // Map profiles to messages
+      const profileMap = {};
+      profiles.forEach(profile => {
+        profileMap[profile.id] = profile.name;
+      });
+
+      // Add sender names to messages
+      const messagesWithNames = data.map(msg => ({
+        ...msg,
+        sender_profile: { name: profileMap[msg.sender_id] || null },
+      }));
+
+      return {
+        data: messagesWithNames,
+        error: null,
+      };
+    }
+
+    return {
+      data: data || [],
+      error: null,
+    };
+  } catch (error) {
+    console.error('Get messages error:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to fetch messages',
+    };
+  }
 };
 
 /**
  * Send a message
- * @param {object} messageData - Message data
+ * @param {object} messageData - Message data { transaction_id, sender_id, message }
  * @returns {Promise<object>} - Created message
  */
 export const sendMessage = async (messageData) => {
-  return insertIntoTable('messages', {
-    ...messageData,
-    created_at: new Date().toISOString(),
-  });
+  try {
+    const { data, error } = await supabase
+      .from('messages')
+      .insert({
+        transaction_id: messageData.transaction_id,
+        sender_id: messageData.sender_id,
+        message: messageData.message,
+        created_at: new Date().toISOString(),
+      })
+      .select('id, transaction_id, sender_id, message, created_at')
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      data: data,
+      error: null,
+    };
+  } catch (error) {
+    console.error('Send message error:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to send message',
+    };
+  }
+};
+
+/**
+ * Mark messages as read for a transaction
+ * @param {string} transactionId - Transaction ID
+ * @param {string} userId - User ID (current user)
+ * @returns {Promise<object>} - Update result
+ * Note: This function requires a 'read_at' column in the messages table.
+ * If the column doesn't exist, it will return success without error (graceful degradation).
+ */
+export const markMessagesAsRead = async (transactionId, userId) => {
+  try {
+    const { error } = await supabase
+      .from('messages')
+      .update({ read_at: new Date().toISOString() })
+      .eq('transaction_id', transactionId)
+      .neq('sender_id', userId)
+      .is('read_at', null);
+
+    // If error is about missing column, return success (graceful degradation)
+    if (error) {
+      // Check if error is about missing column
+      if (error.message && error.message.includes('read_at')) {
+        // Column doesn't exist, but that's okay - just return success
+        return {
+          data: { success: true, note: 'read_at column not available' },
+          error: null,
+        };
+      }
+      throw error;
+    }
+
+    return {
+      data: { success: true },
+      error: null,
+    };
+  } catch (error) {
+    // If it's a column not found error, return success gracefully
+    if (error.message && error.message.includes('read_at')) {
+      return {
+        data: { success: true, note: 'read_at column not available' },
+        error: null,
+      };
+    }
+    
+    console.error('Mark messages as read error:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to mark messages as read',
+    };
+  }
 };
 
 // ==================== PROFILES ====================
@@ -294,28 +643,351 @@ export const getUserProfile = async (userId) => {
 };
 
 /**
+ * Check if username is available
+ * @param {string} username - Username to check
+ * @returns {Promise<object>} - { available: boolean, error: string|null }
+ */
+export const checkUsernameAvailability = async (username) => {
+  try {
+    if (!username || username.trim() === '') {
+      return {
+        available: false,
+        error: 'Username is required',
+      };
+    }
+
+    const trimmedUsername = username.trim().toLowerCase();
+
+    // Validate username format: 3-30 characters, alphanumeric and underscores only
+    const usernameRegex = /^[a-z0-9_]{3,30}$/;
+    if (!usernameRegex.test(trimmedUsername)) {
+      return {
+        available: false,
+        error: 'Username must be 3-30 characters, lowercase letters, numbers, and underscores only',
+      };
+    }
+
+    // Check if username exists in database
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('username', trimmedUsername)
+      .limit(1);
+
+    if (error) {
+      // If error is about column not existing, assume available (for backward compatibility)
+      if (error.message && error.message.includes('username')) {
+        return {
+          available: true,
+          error: null,
+        };
+      }
+      throw error;
+    }
+
+    if (data && data.length > 0) {
+      return {
+        available: false,
+        error: 'This username is already taken',
+      };
+    }
+
+    return {
+      available: true,
+      error: null,
+    };
+  } catch (error) {
+    console.error('Check username availability error:', error);
+    return {
+      available: false,
+      error: error.message || 'Failed to check username availability',
+    };
+  }
+};
+
+/**
+ * Find user by email, username, or UUID
+ * @param {string} identifier - Email, username, or UUID
+ * @returns {Promise<object>} - User profile with id
+ */
+export const findUserByIdentifier = async (identifier) => {
+  try {
+    if (!identifier || identifier.trim() === '') {
+      return {
+        data: null,
+        error: 'Please enter a User ID (UUID), Username, or Email',
+      };
+    }
+
+    const trimmedIdentifier = identifier.trim();
+    const isEmail = trimmedIdentifier.includes('@');
+
+    // Check if it's a valid UUID format
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    
+    if (uuidRegex.test(trimmedIdentifier)) {
+      // It's a UUID, try to get profile directly
+      const profileResult = await getUserProfile(trimmedIdentifier);
+      if (profileResult.data && profileResult.data.id) {
+        return {
+          data: { id: profileResult.data.id },
+          error: null,
+        };
+      }
+      
+      // If profile doesn't exist, the UUID might still be valid in auth.users
+      // Try to verify by checking if we can query transactions with this user
+      // For now, we'll accept the UUID if it's in valid format
+      // The database foreign key constraint will catch invalid UUIDs
+      return {
+        data: { id: trimmedIdentifier },
+        error: null,
+      };
+    }
+
+    // If it's an email, search in profiles table
+    if (isEmail) {
+      const emailLower = trimmedIdentifier.toLowerCase();
+      
+      // Try to find by email in profiles table (case-insensitive search)
+      // First try exact match
+      let { data: profileData, error: profileError } = await supabase
+        .from('profiles')
+        .select('id, email')
+        .eq('email', emailLower)
+        .limit(1);
+
+      // If exact match fails, try case-insensitive search
+      if (profileError || !profileData || profileData.length === 0) {
+        const { data: ilikeData, error: ilikeError } = await supabase
+          .from('profiles')
+          .select('id, email')
+          .ilike('email', emailLower)
+          .limit(1);
+        
+        if (!ilikeError && ilikeData && ilikeData.length > 0) {
+          profileData = ilikeData;
+          profileError = null;
+        }
+      }
+
+      if (!profileError && profileData && profileData.length > 0) {
+        return {
+          data: { id: profileData[0].id },
+          error: null,
+        };
+      }
+
+      // If not found, provide helpful error message
+      return {
+        data: null,
+        error: `User with email "${emailLower}" not found in the system. Possible reasons:\n\n1. The user hasn't signed up yet\n2. The user's profile hasn't been created\n3. RLS policies may be blocking the search\n\nPlease use the user's UUID or username instead, or ask them to sign up first.`,
+      };
+    }
+
+    // If it's not an email and not a UUID, try searching by username
+    const usernameLower = trimmedIdentifier.toLowerCase();
+    const { data: usernameData, error: usernameError } = await supabase
+      .from('profiles')
+      .select('id, username')
+      .eq('username', usernameLower)
+      .limit(1);
+
+    if (!usernameError && usernameData && usernameData.length > 0) {
+      return {
+        data: { id: usernameData[0].id },
+        error: null,
+      };
+    }
+
+    // If not found by username either
+    return {
+      data: null,
+      error: `User "${trimmedIdentifier}" not found. Please enter a valid UUID, username, or email address.`,
+    };
+  } catch (error) {
+    console.error('Find user by identifier error:', error);
+    return {
+      data: null,
+      error: error.message || 'User not found',
+    };
+  }
+};
+
+/**
+ * Find user by username and return their email (for login)
+ * @param {string} username - Username to search for
+ * @returns {Promise<object>} - User email and id
+ */
+export const findUserByUsername = async (username) => {
+  try {
+    if (!username || username.trim() === '') {
+      return {
+        data: null,
+        error: 'Username is required',
+      };
+    }
+
+    const trimmedUsername = username.trim().toLowerCase();
+
+    // Search for user by username in profiles table
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, email, username')
+      .eq('username', trimmedUsername)
+      .limit(1)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Find user by username error:', error);
+      return {
+        data: null,
+        error: error.message || 'Failed to find user by username',
+      };
+    }
+
+    if (!data || !data.email) {
+      return {
+        data: null,
+        error: 'User not found. Please check your username and try again.',
+      };
+    }
+
+    return {
+      data: {
+        id: data.id,
+        email: data.email,
+        username: data.username,
+      },
+      error: null,
+    };
+  } catch (error) {
+    console.error('Find user by username error:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to find user by username',
+    };
+  }
+};
+
+/**
  * Update user profile
  * @param {string} userId - User ID
  * @param {object} profileData - Profile updates
  * @returns {Promise<object>} - Updated profile
  */
 export const updateUserProfile = async (userId, profileData) => {
-  return updateTable('profiles', userId, {
-    ...profileData,
-    updated_at: new Date().toISOString(),
-  });
+  try {
+    console.log(`Attempting to update profile for user ${userId}:`, JSON.stringify(profileData, null, 2));
+    
+    // First, check if profile exists
+    const { data: existingProfile, error: checkError } = await supabase
+      .from('profiles')
+      .select('id')
+      .eq('id', userId)
+      .maybeSingle();
+    
+    if (checkError && checkError.code !== 'PGRST116') {
+      console.error('Error checking profile existence:', checkError);
+    }
+    
+    if (!existingProfile) {
+      console.log('Profile does not exist, cannot update');
+      return {
+        data: null,
+        error: 'Profile not found',
+      };
+    }
+    
+    // Update the profile
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({
+        name: profileData.name,
+        first_name: profileData.first_name,
+        last_name: profileData.last_name,
+        username: profileData.username,
+        email: profileData.email,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId)
+      .select();
+
+    if (error) {
+      console.error('Update profile error details:', {
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+      throw error;
+    }
+
+    // Handle case where no rows were updated
+    if (!data || data.length === 0) {
+      console.log('No rows were updated (profile might not exist or RLS blocked update)');
+      return {
+        data: null,
+        error: 'No rows updated',
+      };
+    }
+
+    console.log('Successfully updated profile:', data[0]);
+    return {
+      data: data[0],
+      error: null,
+    };
+  } catch (error) {
+    console.error('Update user profile error:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to update user profile',
+    };
+  }
 };
 
 /**
  * Create user profile (usually called after signup)
- * @param {object} profileData - Profile data
+ * @param {object} profileData - Profile data { id, email, name, first_name, last_name, username }
  * @returns {Promise<object>} - Created profile
  */
 export const createUserProfile = async (profileData) => {
-  return insertIntoTable('profiles', {
-    ...profileData,
+  // Construct name from first_name and last_name if name is not provided
+  let name = profileData.name;
+  if (!name && (profileData.first_name || profileData.last_name)) {
+    name = [profileData.first_name, profileData.last_name].filter(Boolean).join(' ').trim();
+  }
+  
+  // Ensure username is lowercase and trimmed
+  const username = profileData.username ? profileData.username.toLowerCase().trim() : null;
+  
+  // Ensure email is lowercase and trimmed
+  const email = profileData.email ? profileData.email.toLowerCase().trim() : null;
+  
+  // Ensure name is trimmed
+  name = name ? name.trim() : null;
+
+  // Prepare the data to insert
+  const insertData = {
+    id: profileData.id,
+    email: email,
+    name: name,
+    first_name: profileData.first_name ? profileData.first_name.trim() : null,
+    last_name: profileData.last_name ? profileData.last_name.trim() : null,
+    username: username,
     created_at: new Date().toISOString(),
+  };
+
+  console.log('Creating profile with data:', {
+    id: insertData.id,
+    email: insertData.email,
+    name: insertData.name,
+    first_name: insertData.first_name,
+    last_name: insertData.last_name,
+    username: insertData.username,
   });
+
+  return insertIntoTable('profiles', insertData);
 };
 
 // ==================== WALLETS ====================
@@ -393,31 +1065,127 @@ export const updateWalletBalance = async (userId, amount) => {
  * @returns {Promise<object>} - Created wallet
  */
 export const createWallet = async (userId, initialBalance = 0) => {
-  return insertIntoTable('wallets', {
-    user_id: userId,
-    balance: initialBalance,
-    created_at: new Date().toISOString(),
-  });
+  try {
+    console.log(`Creating wallet for user ${userId} with balance ${initialBalance}`);
+    
+    // First check if wallet already exists
+    const { data: existingWallet, error: checkError } = await supabase
+      .from('wallets')
+      .select('id')
+      .eq('user_id', userId)
+      .maybeSingle();
+    
+    if (existingWallet) {
+      console.log('Wallet already exists, returning existing wallet');
+      return {
+        data: existingWallet,
+        error: null,
+      };
+    }
+    
+    // Try to insert new wallet
+    const result = await insertIntoTable('wallets', {
+      user_id: userId,
+      balance: initialBalance,
+      created_at: new Date().toISOString(),
+    });
+    
+    if (result.error) {
+      console.error('Wallet creation error:', result.error);
+      // If insert fails, try to get existing wallet
+      const { data: wallet, error: fetchError } = await supabase
+        .from('wallets')
+        .select('*')
+        .eq('user_id', userId)
+        .maybeSingle();
+      
+      if (wallet) {
+        console.log('Found existing wallet after insert failure');
+        return {
+          data: wallet,
+          error: null,
+        };
+      }
+    }
+    
+    return result;
+  } catch (error) {
+    console.error('Create wallet error:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to create wallet',
+    };
+  }
 };
 
 // ==================== TRANSACTION HISTORY ====================
 
 /**
- * Get transaction history (wallet transactions)
+ * Get transaction history (wallet transactions/payment history)
  * @param {string} userId - User ID
  * @param {object} options - Query options
  * @returns {Promise<object>} - Transaction history
  */
 export const getTransactionHistory = async (userId, options = {}) => {
-  return fetchFromTable('transaction_history', {
-    filter: {
-      user_id: userId,
-      ...options.filter,
-    },
-    orderBy: options.orderBy || { column: 'created_at', ascending: false },
-    limit: options.limit || 50,
-    ...options,
-  });
+  try {
+    if (!userId) {
+      return { data: [], error: null };
+    }
+
+    // Try payment_history table first, fallback to transaction_history
+    let query = supabase
+      .from('payment_history')
+      .select('*')
+      .eq('user_id', userId);
+
+    // Apply ordering
+    if (options.orderBy) {
+      query = query.order(options.orderBy.column, {
+        ascending: options.orderBy.ascending !== false,
+      });
+    } else {
+      query = query.order('created_at', { ascending: false });
+    }
+
+    // Apply limit
+    if (options.limit) {
+      query = query.limit(options.limit);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      // If payment_history doesn't exist, try transaction_history
+      const fallbackQuery = supabase
+        .from('transaction_history')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(options.limit || 50);
+
+      const { data: fallbackData, error: fallbackError } = await fallbackQuery;
+      
+      if (fallbackError) {
+        throw fallbackError;
+      }
+
+      return {
+        data: fallbackData || [],
+        error: null,
+      };
+    }
+
+    return {
+      data: data || [],
+      error: null,
+    };
+  } catch (error) {
+    console.error('Get transaction history error:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to get transaction history',
+    };
+  }
 };
 
 /**
