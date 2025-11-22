@@ -18,6 +18,8 @@ export default function LoginRoute() {
   const [username, setUsername] = useState('');
   const [usernameStatus, setUsernameStatus] = useState(null); // null, 'checking', 'available', 'taken', 'invalid'
   const [usernameError, setUsernameError] = useState('');
+  const [emailStatus, setEmailStatus] = useState(null); // null, 'checking', 'available', 'taken', 'invalid'
+  const [emailError, setEmailError] = useState('');
   const [err, setErr] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [saveLoginInfo, setSaveLoginInfo] = useState(false);
@@ -69,6 +71,42 @@ export default function LoginRoute() {
 
     return () => clearTimeout(timeoutId);
   }, [username, isLogin]);
+
+  // Debounced email check (only for signup)
+  useEffect(() => {
+    if (isLogin || !email.trim()) {
+      setEmailStatus(null);
+      setEmailError('');
+      return;
+    }
+
+    const trimmedEmail = email.trim().toLowerCase();
+    
+    // Basic email format validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(trimmedEmail)) {
+      setEmailStatus('invalid');
+      setEmailError('Please enter a valid email address');
+      return;
+    }
+
+    // Debounce the API call
+    setEmailStatus('checking');
+    setEmailError('');
+
+    const timeoutId = setTimeout(async () => {
+      const result = await DatabaseService.checkEmailAvailability(trimmedEmail);
+      if (result.available) {
+        setEmailStatus('available');
+        setEmailError('');
+      } else {
+        setEmailStatus('taken');
+        setEmailError(result.error || 'This email is already registered');
+      }
+    }, 500); // 500ms debounce
+
+    return () => clearTimeout(timeoutId);
+  }, [email, isLogin]);
 
   const handleSubmit = async () => {
     setErr(null);
@@ -127,6 +165,14 @@ export default function LoginRoute() {
       const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
       if (!emailRegex.test(email.trim())) {
         setErr('Please enter a valid email address');
+        return;
+      }
+      if (emailStatus === 'taken') {
+        setErr('This email is already registered. Please sign in instead.');
+        return;
+      }
+      if (emailStatus === 'checking') {
+        setErr('Please wait while we check email availability');
         return;
       }
       if (password.length < 6) {
@@ -267,7 +313,7 @@ export default function LoginRoute() {
                 )}
                 {usernameStatus === 'available' && (
                   <Text style={[styles.usernameSuccessText, isRTL && styles.textRTL]}>
-                    {t('usernameAvailable') || 'Username available'}
+                    Username is available
                   </Text>
                 )}
               </View>
@@ -275,24 +321,56 @@ export default function LoginRoute() {
           )}
 
           <View style={styles.inputWrapper}>
-            <TextInput
-              style={[styles.input, isRTL && styles.inputRTL]}
-              placeholder={isLogin ? "Email or Username" : "Email"}
-              value={email}
-              onChangeText={setEmail}
-              textAlign={isRTL ? 'right' : 'left'}
-              placeholderTextColor="#94a3b8"
-              keyboardType={isLogin ? "default" : "email-address"}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
-            {email.length > 0 && (
-              <TouchableOpacity
-                style={[styles.clearButton, isRTL && styles.clearButtonRTL]}
-                onPress={() => setEmail('')}
-              >
-                <Text style={styles.clearIcon}>✕</Text>
-              </TouchableOpacity>
+            <View style={!isLogin ? styles.emailContainer : null}>
+              <TextInput
+                style={[
+                  styles.input, 
+                  isRTL && styles.inputRTL,
+                  !isLogin && emailStatus === 'available' && styles.inputValid,
+                  !isLogin && (emailStatus === 'taken' || emailStatus === 'invalid') && styles.inputInvalid
+                ]}
+                placeholder={isLogin ? "Email or Username" : "Email"}
+                value={email}
+                onChangeText={setEmail}
+                textAlign={isRTL ? 'right' : 'left'}
+                placeholderTextColor="#94a3b8"
+                keyboardType={isLogin ? "default" : "email-address"}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {!isLogin && emailStatus === 'checking' && (
+                <View style={[styles.usernameIndicator, isRTL && styles.usernameIndicatorRTL]}>
+                  <ActivityIndicator size="small" color="#64748b" />
+                </View>
+              )}
+              {!isLogin && emailStatus === 'available' && (
+                <View style={[styles.usernameIndicator, isRTL && styles.usernameIndicatorRTL]}>
+                  <Text style={styles.usernameCheckIcon}>✓</Text>
+                </View>
+              )}
+              {!isLogin && (emailStatus === 'taken' || emailStatus === 'invalid') && (
+                <View style={[styles.usernameIndicator, isRTL && styles.usernameIndicatorRTL]}>
+                  <Text style={styles.usernameErrorIcon}>✕</Text>
+                </View>
+              )}
+              {isLogin && email.length > 0 && (
+                <TouchableOpacity
+                  style={[styles.clearButton, isRTL && styles.clearButtonRTL]}
+                  onPress={() => setEmail('')}
+                >
+                  <Text style={styles.clearIcon}>✕</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {!isLogin && emailStatus && emailStatus !== 'checking' && emailStatus !== 'available' && (
+              <Text style={[styles.usernameErrorText, isRTL && styles.textRTL]}>
+                {emailError}
+              </Text>
+            )}
+            {!isLogin && emailStatus === 'available' && (
+              <Text style={[styles.usernameSuccessText, isRTL && styles.textRTL]}>
+                Email is available
+              </Text>
             )}
           </View>
 
@@ -312,7 +390,7 @@ export default function LoginRoute() {
                   <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
                     <Text style={styles.eyeIcon}>{showPassword ? '👁️' : '👁️‍🗨️'}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setPassword('')} style={styles.clearButton}>
+                  <TouchableOpacity onPress={() => setPassword('')} style={styles.passwordClearButton}>
                     <Text style={styles.clearIcon}>✕</Text>
                   </TouchableOpacity>
                 </>
@@ -507,6 +585,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  passwordClearButton: {
+    width: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   eyeIcon: {
     fontSize: 18,
   },
@@ -587,6 +671,9 @@ const styles = StyleSheet.create({
     textAlign: 'right',
   },
   usernameContainer: {
+    position: 'relative',
+  },
+  emailContainer: {
     position: 'relative',
   },
   usernameIndicator: {

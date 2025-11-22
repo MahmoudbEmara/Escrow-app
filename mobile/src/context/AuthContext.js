@@ -144,14 +144,48 @@ export const AuthProvider = ({ children }) => {
     state,
     signIn: async (emailOrUsername, password) => {
       try {
-        let emailToUse = emailOrUsername.trim();
+        let emailToUse = null;
+        const input = emailOrUsername.trim();
         
-        // Check if input is email or username
-        const isEmail = emailOrUsername.includes('@');
+        // Check if input is email (contains '@') or username (default)
+        const isEmail = input.includes('@');
         
-        // If it's not an email, treat it as username and look up the email
-        if (!isEmail) {
-          const username = emailOrUsername.trim().toLowerCase();
+        if (isEmail) {
+          // Input is an email - look up username from email
+          console.log('Looking up email:', input);
+          
+          // Use database function to lookup username by email (bypasses RLS)
+          const { data: profileData, error: profileError } = await supabase
+            .rpc('get_email_by_email', { email_input: input.toLowerCase() });
+          
+          console.log('Email lookup result:', { profileData, profileError });
+          
+          if (profileError) {
+            console.error('Profile lookup error:', profileError);
+            return { 
+              error: `Database error: ${profileError.message}. Please try again.`, 
+              token: null, 
+              user: null 
+            };
+          }
+          
+          // RPC returns an array, get first result
+          const profile = Array.isArray(profileData) && profileData.length > 0 ? profileData[0] : null;
+          
+          if (!profile || !profile.email) {
+            console.log('User not found for email:', input);
+            return { 
+              error: 'Invalid email or password. Please check your credentials and try again.', 
+              token: null, 
+              user: null 
+            };
+          }
+          
+          console.log('Found username for email:', profile.username);
+          emailToUse = profile.email; // Use the email for sign in
+        } else {
+          // Default: Input is a username - look up email from username
+          const username = input.toLowerCase();
           console.log('Looking up username:', username);
           
           // Use database function to lookup email by username (bypasses RLS)
@@ -183,6 +217,14 @@ export const AuthProvider = ({ children }) => {
           
           console.log('Found email for username:', profile.email);
           emailToUse = profile.email;
+        }
+        
+        if (!emailToUse) {
+          return { 
+            error: 'Unable to determine email. Please try again.', 
+            token: null, 
+            user: null 
+          };
         }
         
         console.log('Signing in with email:', emailToUse);

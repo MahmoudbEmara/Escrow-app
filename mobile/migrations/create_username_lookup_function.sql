@@ -10,7 +10,7 @@ SET search_path = public
 AS $$
 BEGIN
   RETURN QUERY
-  SELECT p.id, p.email, p.username
+  SELECT p.id, p.email::TEXT, p.username::TEXT
   FROM profiles p
   WHERE LOWER(p.username) = LOWER(username_input)
   LIMIT 1;
@@ -30,7 +30,7 @@ SET search_path = public
 AS $$
 BEGIN
   RETURN QUERY
-  SELECT p.id, p.email, p.username
+  SELECT p.id, p.email::TEXT, p.username::TEXT
   FROM profiles p
   WHERE LOWER(p.email) = LOWER(email_input)
   LIMIT 1;
