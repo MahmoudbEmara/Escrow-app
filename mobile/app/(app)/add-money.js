@@ -66,7 +66,7 @@ export default function AddMoneyScreen() {
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, isRTL && styles.textRTL]}>{t('enterAmount')}</Text>
           <View style={[styles.amountInputContainer, isRTL && styles.amountInputContainerRTL]}>
-            <Text style={styles.currencySymbol}>$</Text>
+            <Text style={styles.currencySymbol}>EGP</Text>
             <TextInput
               style={[styles.amountInput, isRTL && styles.textRTL]}
               value={amount}
@@ -96,7 +96,7 @@ export default function AddMoneyScreen() {
                   styles.quickAmountText,
                   amount === value.toString() && styles.quickAmountTextActive
                 ]}>
-                  ${value}
+                  {value} EGP
                 </Text>
               </TouchableOpacity>
             ))}

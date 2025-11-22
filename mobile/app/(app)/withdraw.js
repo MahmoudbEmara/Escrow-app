@@ -60,14 +60,14 @@ export default function WithdrawScreen() {
         {/* Available Balance Card */}
         <View style={styles.balanceCard}>
           <Text style={[styles.balanceLabel, isRTL && styles.textRTL]}>{t('availableBalance')}</Text>
-          <Text style={[styles.balanceAmount, isRTL && styles.textRTL]}>${availableBalance.toFixed(2)}</Text>
+          <Text style={[styles.balanceAmount, isRTL && styles.textRTL]}>{availableBalance.toFixed(2)} EGP</Text>
         </View>
 
         {/* Enter Amount Section */}
         <View style={styles.section}>
           <Text style={[styles.sectionTitle, isRTL && styles.textRTL]}>{t('enterAmount')}</Text>
           <View style={[styles.amountInputContainer, isRTL && styles.amountInputContainerRTL]}>
-            <Text style={styles.currencySymbol}>$</Text>
+            <Text style={styles.currencySymbol}>EGP</Text>
             <TextInput
               style={[styles.amountInput, isRTL && styles.textRTL]}
               value={amount}
@@ -97,7 +97,7 @@ export default function WithdrawScreen() {
                   styles.quickAmountText,
                   amount === value.toString() && styles.quickAmountTextActive
                 ]}>
-                  ${value}
+                  {value} EGP
                 </Text>
               </TouchableOpacity>
             ))}
@@ -176,7 +176,7 @@ export default function WithdrawScreen() {
             styles.withdrawButtonText,
             !isWithdrawEnabled && styles.withdrawButtonTextDisabled
           ]}>
-            {t('withdraw')} ${amount || '0.00'}
+            {t('withdraw')} {amount || '0.00'} EGP
           </Text>
         </TouchableOpacity>
       </ScrollView>

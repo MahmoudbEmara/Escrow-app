@@ -1,11 +1,12 @@
-import React, { useState, useContext, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import React, { useState, useContext, useEffect, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as AuthSession from 'expo-auth-session';
 import * as DatabaseService from '../../src/services/databaseService';
+import { supabase } from '../../src/lib/supabase';
 
 export default function HomeScreen() {
   const { state } = useContext(AuthContext);
@@ -19,6 +20,7 @@ export default function HomeScreen() {
   const [selectedStatus, setSelectedStatus] = useState(null);
   const [transactions, setTransactions] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [totalInEscrow, setTotalInEscrow] = useState(0);
   const [incoming, setIncoming] = useState(0);
   const [outgoing, setOutgoing] = useState(0);
@@ -100,10 +102,17 @@ export default function HomeScreen() {
   }, [isTestUser, state.user?.profile?.first_name, state.user?.profile?.name]);
 
   // Fetch transactions and wallet data
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(async (isRefresh = false) => {
       if (!state.user?.id) {
         setLoading(false);
+        setRefreshing(false);
         return;
+      }
+
+      if (isRefresh) {
+        setRefreshing(true);
+      } else {
+        setLoading(true);
       }
 
       // Use test data for test user
@@ -113,6 +122,7 @@ export default function HomeScreen() {
         setIncoming(testIncoming);
         setOutgoing(testOutgoing);
         setLoading(false);
+        setRefreshing(false);
         return;
       }
 
@@ -187,15 +197,114 @@ export default function HomeScreen() {
         }
 
         setLoading(false);
+        setRefreshing(false);
       } catch (error) {
         console.error('Error fetching data:', error);
         setLoading(false);
+        setRefreshing(false);
       }
     }, [state.user?.id, isTestUser, getUserDisplayName]);
+
+  // Handle pull-to-refresh
+  const onRefresh = useCallback(() => {
+    fetchData(true);
+  }, [fetchData]);
 
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Set up realtime subscription for new transactions and deletions
+  useEffect(() => {
+    if (!state.user?.id || isTestUser) {
+      return;
+    }
+
+    console.log('Setting up realtime subscription for transactions...');
+    console.log('User ID:', state.user.id);
+    
+    // Subscribe to INSERT and DELETE events on transactions table
+    // Listen to all INSERT events and filter in the callback to catch both buyer and seller cases
+    const channel = supabase
+      .channel(`transactions-changes-${state.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'transactions',
+        },
+        (payload) => {
+          console.log('New transaction detected:', payload.new);
+          const newTransaction = payload.new;
+          
+          // Check if this transaction involves the current user
+          if (newTransaction.buyer_id === state.user.id || newTransaction.seller_id === state.user.id) {
+            console.log('Transaction involves current user, refreshing data...');
+            // Refresh data when new transaction is created
+            fetchData();
+          } else {
+            console.log('Transaction does not involve current user, ignoring...');
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'transactions',
+        },
+        (payload) => {
+          console.log('Transaction deleted:', payload.old);
+          const deletedTransaction = payload.old;
+          
+          // Check if this transaction involved the current user
+          if (deletedTransaction.buyer_id === state.user.id || deletedTransaction.seller_id === state.user.id) {
+            console.log('Deleted transaction involved current user, removing from list...');
+            // Remove transaction from local state immediately
+            const deletedId = deletedTransaction.id;
+            setTransactions(prevTransactions => {
+              const updated = prevTransactions.filter(t => t.id !== deletedId);
+              
+              // Recalculate totals
+              const inEscrow = updated
+                .filter(t => t.status !== 'Completed' && t.status !== 'Cancelled')
+                .reduce((sum, t) => sum + t.amount, 0);
+              setTotalInEscrow(inEscrow);
+
+              const incomingAmount = updated
+                .filter(t => t.role === 'Seller' && t.status !== 'Completed' && t.status !== 'Cancelled')
+                .reduce((sum, t) => sum + t.amount, 0);
+              setIncoming(incomingAmount);
+
+              const outgoingAmount = updated
+                .filter(t => t.role === 'Buyer' && t.status !== 'Completed' && t.status !== 'Cancelled')
+                .reduce((sum, t) => sum + t.amount, 0);
+              setOutgoing(outgoingAmount);
+              
+              return updated;
+            });
+          } else {
+            console.log('Deleted transaction did not involve current user, ignoring...');
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Realtime subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to transaction changes');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('Realtime subscription error');
+        }
+      });
+
+    // Cleanup subscription on unmount
+    return () => {
+      console.log('Cleaning up realtime subscription...');
+      supabase.removeChannel(channel);
+    };
+  }, [state.user?.id, isTestUser, fetchData]);
 
   // Refresh data when screen comes into focus
   useFocusEffect(
@@ -278,7 +387,18 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" />
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+      <ScrollView 
+        style={styles.scrollView} 
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#3b82f6"
+            colors={["#3b82f6"]}
+          />
+        }
+      >
         {/* User Profile Section */}
         <View style={[styles.header, isRTL && styles.headerRTL]}>
           <View style={styles.profileSection}>
@@ -301,7 +421,7 @@ export default function HomeScreen() {
         {/* Escrow Overview */}
         <View style={styles.escrowCard}>
           <Text style={[styles.escrowTitle, isRTL && styles.textRTL]}>{t('totalInEscrow')}</Text>
-          <Text style={[styles.escrowAmount, isRTL && styles.textRTL]}>${totalInEscrow.toFixed(2)}</Text>
+          <Text style={[styles.escrowAmount, isRTL && styles.textRTL]}>{totalInEscrow.toFixed(2)} EGP</Text>
           <View style={[styles.escrowStats, isRTL && styles.escrowStatsRTL]}>
             <View style={[styles.statItem, isRTL && styles.statItemRTL]}>
               <View style={styles.statIcon}>
@@ -309,7 +429,7 @@ export default function HomeScreen() {
               </View>
               <View>
                 <Text style={[styles.statLabel, isRTL && styles.textRTL]}>{t('incoming')}</Text>
-                <Text style={[styles.statValue, isRTL && styles.textRTL]}>${incoming.toFixed(2)}</Text>
+                <Text style={[styles.statValue, isRTL && styles.textRTL]}>{incoming.toFixed(2)} EGP</Text>
               </View>
             </View>
             <View style={[styles.statItem, isRTL && styles.statItemRTL]}>
@@ -318,7 +438,7 @@ export default function HomeScreen() {
               </View>
               <View>
                 <Text style={[styles.statLabel, isRTL && styles.textRTL]}>{t('outgoing')}</Text>
-                <Text style={[styles.statValue, isRTL && styles.textRTL]}>${outgoing.toFixed(2)}</Text>
+                <Text style={[styles.statValue, isRTL && styles.textRTL]}>{outgoing.toFixed(2)} EGP</Text>
               </View>
             </View>
           </View>
@@ -459,7 +579,7 @@ export default function HomeScreen() {
                 <View style={[styles.transactionAmountRow, isRTL && styles.transactionAmountRowRTL]}>
                   <Text style={[styles.transactionAmountLabel, isRTL && styles.textRTL]}>{t('amount')}</Text>
                   <Text style={[styles.transactionAmount, isOutgoing && styles.transactionAmountOutgoing, isRTL && styles.textRTL]}>
-                    {isOutgoing ? '-' : '+'}${transaction.amount.toFixed(2)}
+                    {isOutgoing ? '-' : '+'}{transaction.amount.toFixed(2)} EGP
                   </Text>
                 </View>
               </TouchableOpacity>

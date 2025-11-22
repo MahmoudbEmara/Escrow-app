@@ -188,6 +188,53 @@ export default function TransactionDetailsScreen() {
     );
   };
 
+  const handleDeleteTransaction = () => {
+    Alert.alert(
+      'Delete Transaction',
+      'Are you sure you want to delete this transaction? This will permanently remove the transaction and all related data (messages, terms, etc.). This action cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            if (isTestUser) {
+              Alert.alert('Success', 'Transaction deleted successfully (test mode)');
+              router.back();
+              return;
+            }
+
+            try {
+              console.log('Attempting to delete transaction:', transaction.id);
+              const result = await DatabaseService.deleteTransaction(transaction.id);
+              
+              console.log('Delete result:', result);
+              
+              if (result.error || !result.success) {
+                const errorMessage = result.error || 'Failed to delete transaction. Please check if you have permission or if the transaction status allows deletion.';
+                console.error('Delete failed:', errorMessage);
+                Alert.alert('Error', errorMessage);
+                return;
+              }
+
+              Alert.alert('Success', 'Transaction deleted successfully', [
+                {
+                  text: 'OK',
+                  onPress: () => {
+                    router.back();
+                  },
+                },
+              ]);
+            } catch (error) {
+              console.error('Delete transaction error:', error);
+              Alert.alert('Error', error.message || 'Failed to delete transaction. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  };
+
   if (loading || !transaction) {
     return (
       <View style={styles.container}>
@@ -255,17 +302,16 @@ export default function TransactionDetailsScreen() {
 
           <View style={styles.divider} />
 
+          {/* Show only the other party (not the current user) */}
           <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Buyer:</Text>
-            <Text style={styles.infoValue}>
-              {transaction.role === 'Buyer' ? 'You' : maskUserId(transaction.buyerId)}
+            <Text style={styles.infoLabel}>
+              {transaction.role === 'Buyer' ? 'Seller:' : 'Buyer:'}
             </Text>
-          </View>
-
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Seller:</Text>
             <Text style={styles.infoValue}>
-              {transaction.role === 'Seller' ? 'You' : maskUserId(transaction.sellerId)}
+              {transaction.role === 'Buyer' 
+                ? (transaction.seller || maskUserId(transaction.sellerId))
+                : (transaction.buyer || maskUserId(transaction.buyerId))
+              }
             </Text>
           </View>
 
@@ -273,7 +319,7 @@ export default function TransactionDetailsScreen() {
 
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>Amount:</Text>
-            <Text style={styles.amountValue}>${transaction.amount.toFixed(2)}</Text>
+            <Text style={styles.amountValue}>{transaction.amount.toFixed(2)} EGP</Text>
           </View>
 
           <View style={styles.infoRow}>
@@ -301,7 +347,17 @@ export default function TransactionDetailsScreen() {
             <Text style={styles.messageButtonText}>{t('message') || 'Message'}</Text>
           </TouchableOpacity>
 
-          {transaction.status !== 'Completed' && transaction.status !== 'In Dispute' && (
+          {/* Delete button - only show if status is pending */}
+          {(transaction.status === 'pending' || transaction.status === 'Pending') && (
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={handleDeleteTransaction}
+            >
+              <Text style={styles.deleteButtonText}>🗑️ {t('delete') || 'Delete Transaction'}</Text>
+            </TouchableOpacity>
+          )}
+
+          {transaction.status !== 'Completed' && transaction.status !== 'In Dispute' && transaction.status !== 'pending' && transaction.status !== 'Pending' && (
             <>
               <TouchableOpacity
                 style={styles.disputeButton}
@@ -480,6 +536,20 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#ffffff',
+  },
+  deleteButton: {
+    paddingVertical: 16,
+    borderRadius: 12,
+    backgroundColor: '#fee2e2',
+    borderWidth: 2,
+    borderColor: '#ef4444',
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  deleteButtonText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#dc2626',
   },
   loadingContainer: {
     flex: 1,

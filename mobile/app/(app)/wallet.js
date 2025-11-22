@@ -125,7 +125,7 @@ export default function WalletScreen() {
         {/* Balance Card */}
         <View style={styles.balanceCard}>
           <Text style={[styles.balanceLabel, isRTL && styles.textRTL]}>{t('availableBalance')}</Text>
-          <Text style={[styles.balanceAmount, isRTL && styles.textRTL]}>${availableBalance.toFixed(2)}</Text>
+          <Text style={[styles.balanceAmount, isRTL && styles.textRTL]}>{availableBalance.toFixed(2)} EGP</Text>
         </View>
 
         {/* Action Buttons */}
@@ -176,7 +176,7 @@ export default function WalletScreen() {
                 { color: payment.type === 'credit' ? '#22c55e' : '#ef4444' },
                 isRTL && styles.textRTL
               ]}>
-                {payment.type === 'credit' ? '+' : '-'}${payment.amount.toFixed(2)}
+                {payment.type === 'credit' ? '+' : '-'}{payment.amount.toFixed(2)} EGP
               </Text>
             </View>
           ))}
