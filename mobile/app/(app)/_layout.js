@@ -52,6 +52,13 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
+        name="messages"
+        options={{
+          title: t('messages') || 'Messages',
+          tabBarIcon: () => null,
+        }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{
           title: t('settings'),
@@ -80,12 +87,14 @@ export default function AppLayout() {
         name="transaction-details"
         options={{
           href: null,
+          tabBarStyle: { display: 'none' },
         }}
       />
       <Tabs.Screen
-        name="messages"
+        name="chat"
         options={{
           href: null,
+          tabBarStyle: { display: 'none' },
         }}
       />
     </Tabs>

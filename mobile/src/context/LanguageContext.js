@@ -52,6 +52,10 @@ const translations = {
     idVerified: 'ID Verified',
     contents: 'Contents',
     messages: 'Messages',
+    message: 'Message',
+    typeMessage: 'Type a message...',
+    noMessages: 'No Messages',
+    noMessagesDesc: 'You don\'t have any messages yet. Start a conversation from a transaction.',
     
     // Wallet
     hello: 'Hello',
@@ -225,6 +229,10 @@ const translations = {
     idVerified: 'تم التحقق من الهوية',
     contents: 'المحتويات',
     messages: 'الرسائل',
+    message: 'رسالة',
+    typeMessage: 'اكتب رسالة...',
+    noMessages: 'لا توجد رسائل',
+    noMessagesDesc: 'ليس لديك أي رسائل بعد. ابدأ محادثة من معاملة.',
     
     // Wallet
     hello: 'مرحباً',
