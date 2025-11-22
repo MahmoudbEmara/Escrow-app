@@ -1,11 +1,21 @@
 import React, { useContext } from 'react';
 import { Tabs, Redirect } from 'expo-router';
+import { View, ActivityIndicator } from 'react-native';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 
 export default function AppLayout() {
   const { state } = useContext(AuthContext);
   const { t, isRTL } = useContext(LanguageContext);
+
+  // Wait for auth to finish loading
+  if (state.isLoading) {
+    return (
+      <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator size="large" />
+      </View>
+    );
+  }
 
   if (!state.userToken) {
     return <Redirect href="/(auth)/login" />;

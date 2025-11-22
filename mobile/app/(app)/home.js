@@ -4,6 +4,8 @@ import { StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
+import * as AuthSession from 'expo-auth-session';
+
 
 export default function HomeScreen() {
   const { state } = useContext(AuthContext);
@@ -15,6 +17,10 @@ export default function HomeScreen() {
   const [showStatusDropdown, setShowStatusDropdown] = useState(false);
   const [selectedRole, setSelectedRole] = useState(null);
   const [selectedStatus, setSelectedStatus] = useState(null);
+  
+  // --- Generate redirect URI for Expo Go ---
+  const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
+  console.log('Redirect URI for Expo Go:', redirectUri);
 
   // Sample transaction data
   const allTransactions = [

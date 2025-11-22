@@ -19,18 +19,47 @@ export default function LoginRoute() {
 
   const handleSubmit = async () => {
     setErr(null);
+    
+    // Validation
+    if (!email.trim()) {
+      setErr('Email is required');
+      return;
+    }
+    if (!password.trim()) {
+      setErr('Password is required');
+      return;
+    }
+    
     if (isLogin) {
-      const res = await signIn(email, password);
-      if (res?.token) router.replace('/(app)/home');
-      else setErr(res?.message || t('loginFailed'));
+      const res = await signIn(email.trim(), password);
+      if (res?.error) {
+        setErr(res.error);
+      } else if (res?.token) {
+        router.replace('/(app)/home');
+      } else {
+        setErr(res?.message || t('loginFailed') || 'Login failed');
+      }
     } else {
       if (!name.trim()) {
         setErr('Name is required');
         return;
       }
-      const res = await signUp(name, email, password);
-      if (res?.token) router.replace('/(app)/home');
-      else setErr(res?.message || 'Sign up failed');
+      if (password.length < 6) {
+        setErr('Password must be at least 6 characters');
+        return;
+      }
+      
+      const res = await signUp(name.trim(), email.trim(), password);
+      if (res?.error) {
+        setErr(res.error);
+      } else if (res?.token) {
+        router.replace('/(app)/home');
+      } else if (res?.message) {
+        // Email verification required
+        setErr(res.message);
+      } else {
+        setErr('Sign up failed');
+      }
     }
   };
 
