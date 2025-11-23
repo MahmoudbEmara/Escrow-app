@@ -1,6 +1,7 @@
 import React, { useContext, useState, useEffect, useCallback } from 'react';
 import { Tabs, Redirect } from 'expo-router';
 import { View, ActivityIndicator, Text } from 'react-native';
+import { Home, Wallet, Settings, MessageCircle } from 'lucide-react-native';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as DatabaseService from '../../src/services/databaseService';
@@ -121,22 +122,32 @@ export default function AppLayout() {
         tabBarStyle: {
           backgroundColor: '#ffffff',
           borderTopWidth: 1,
-          borderTopColor: '#e2e8f0',
+          borderTopColor: '#e5e7eb', // gray-200 from Figma
           position: 'absolute',
           bottom: 0,
           left: 0,
           right: 0,
-          paddingVertical: 10,
-          height: 70,
-          paddingBottom: 20,
+          paddingVertical: 12, // py-3 from Figma (0.75rem = 12px)
+          height: 80, // Adjusted to match Figma: 12px top + 8px item top + 24px icon + 4px gap + 12px text + 8px item bottom + 12px bottom = ~80px
+          paddingBottom: 0, // Remove extra padding, use safe area insets if needed
           flexDirection: isRTL ? 'row-reverse' : 'row',
+          justifyContent: 'space-around', // justify-around from Figma
+          elevation: 0, // Remove shadow on Android
+          shadowOpacity: 0, // Remove shadow on iOS
         },
-        tabBarActiveTintColor: '#3b82f6',
-        tabBarInactiveTintColor: '#94a3b8',
+        tabBarActiveTintColor: '#2563eb', // blue-600 from Figma
+        tabBarInactiveTintColor: '#6b7280', // gray-500 from Figma
         tabBarLabelStyle: {
-          fontSize: 12,
-          fontWeight: '600',
+          fontSize: 12, // text-xs from Figma
+          fontWeight: '400', // normal weight from Figma
           textAlign: 'center',
+          marginTop: 4, // gap-1 from Figma (0.25rem = 4px)
+          marginBottom: 0,
+        },
+        tabBarItemStyle: {
+          paddingVertical: 8, // py-2 from Figma (0.5rem = 8px)
+          paddingHorizontal: 16, // px-4 from Figma (1rem = 16px)
+          height: 'auto',
         },
       }}
     >
@@ -144,21 +155,18 @@ export default function AppLayout() {
         name="home"
         options={{
           title: t('home') || 'Home',
-          tabBarIcon: () => null,
-        }}
-      />
-      <Tabs.Screen
-        name="wallet"
-        options={{
-          title: t('wallet') || 'Wallet',
-          tabBarIcon: () => null,
+          tabBarIcon: ({ color, size }) => (
+            <Home size={24} color={color} />
+          ),
         }}
       />
       <Tabs.Screen
         name="messages"
         options={{
-          title: t('messages') || 'Messages',
-          tabBarIcon: () => null,
+          title: t('chats') || 'Chats',
+          tabBarIcon: ({ color, size }) => (
+            <MessageCircle size={24} color={color} />
+          ),
           tabBarBadge: unreadCount > 0 ? (unreadCount > 99 ? '99+' : unreadCount) : undefined,
           tabBarBadgeStyle: {
             backgroundColor: '#ef4444',
@@ -171,10 +179,21 @@ export default function AppLayout() {
         }}
       />
       <Tabs.Screen
+        name="wallet"
+        options={{
+          title: t('wallet') || 'Wallet',
+          tabBarIcon: ({ color, size }) => (
+            <Wallet size={24} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="settings"
         options={{
           title: t('settings'),
-          tabBarIcon: () => null,
+          tabBarIcon: ({ color, size }) => (
+            <Settings size={24} color={color} />
+          ),
         }}
       />
       <Tabs.Screen

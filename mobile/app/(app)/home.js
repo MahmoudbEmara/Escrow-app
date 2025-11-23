@@ -1,7 +1,8 @@
 import React, { useState, useContext, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl, Platform } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { Filter } from 'lucide-react-native';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as AuthSession from 'expo-auth-session';
@@ -456,8 +457,12 @@ export default function HomeScreen() {
         {/* Transactions List */}
         <View style={[styles.transactionsHeader, isRTL && styles.transactionsHeaderRTL]}>
           <Text style={[styles.transactionsTitle, isRTL && styles.textRTL]}>{t('transactions')} ({filteredTransactions.length})</Text>
-          <TouchableOpacity onPress={() => setShowFilterRow(!showFilterRow)}>
-            <Text style={styles.filterIcon}>🔽</Text>
+          <TouchableOpacity 
+            onPress={() => setShowFilterRow(!showFilterRow)}
+            style={styles.filterIconButton}
+            activeOpacity={0.7}
+          >
+            <Filter size={20} color="#64748b" />
           </TouchableOpacity>
         </View>
 
@@ -767,9 +772,13 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#0f172a',
   },
-  filterIcon: {
-    fontSize: 20,
-    color: '#64748b',
+  filterIconButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#f3f4f6', // light gray background
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   transactionsList: {
     paddingHorizontal: 20,

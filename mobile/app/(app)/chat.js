@@ -63,6 +63,28 @@ export default function ChatScreen() {
             hour: '2-digit', 
             minute: '2-digit' 
           });
+          
+          // Get date string for grouping (YYYY-MM-DD format)
+          const dateKey = messageDate.toISOString().split('T')[0];
+          const dateObj = new Date(dateKey);
+          dateObj.setHours(0, 0, 0, 0);
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+          const yesterday = new Date(today);
+          yesterday.setDate(yesterday.getDate() - 1);
+          
+          let dateLabel = '';
+          if (dateObj.getTime() === today.getTime()) {
+            dateLabel = 'Today';
+          } else if (dateObj.getTime() === yesterday.getTime()) {
+            dateLabel = 'Yesterday';
+          } else {
+            dateLabel = messageDate.toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric', 
+              year: messageDate.getFullYear() !== today.getFullYear() ? 'numeric' : undefined
+            });
+          }
 
           return {
             id: msg.id,
@@ -70,6 +92,8 @@ export default function ChatScreen() {
             senderName: senderName,
             text: msg.message,
             timestamp: timestamp,
+            dateKey: dateKey,
+            dateLabel: dateLabel,
             isMe: isMe,
           };
         });
@@ -114,12 +138,16 @@ export default function ChatScreen() {
     setSending(true);
 
     // Optimistically add message to UI
+    const now = new Date();
+    const dateKey = now.toISOString().split('T')[0];
     const tempMessage = {
       id: `temp_${Date.now()}`,
       senderId: state.user.id,
       senderName: 'You',
       text: messageText,
-      timestamp: new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      timestamp: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }),
+      dateKey: dateKey,
+      dateLabel: 'Today',
       isMe: true,
     };
     setMessages(prev => [...prev, tempMessage]);
@@ -133,15 +161,39 @@ export default function ChatScreen() {
 
       if (result.data) {
         // Replace temp message with real message
+        const messageDate = new Date(result.data.created_at);
+        const dateKey = messageDate.toISOString().split('T')[0];
+        const dateObj = new Date(dateKey);
+        dateObj.setHours(0, 0, 0, 0);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const yesterday = new Date(today);
+        yesterday.setDate(yesterday.getDate() - 1);
+        
+        let dateLabel = '';
+        if (dateObj.getTime() === today.getTime()) {
+          dateLabel = 'Today';
+        } else if (dateObj.getTime() === yesterday.getTime()) {
+          dateLabel = 'Yesterday';
+        } else {
+          dateLabel = messageDate.toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            year: messageDate.getFullYear() !== today.getFullYear() ? 'numeric' : undefined
+          });
+        }
+        
         const realMessage = {
           id: result.data.id,
           senderId: result.data.sender_id,
           senderName: 'You',
           text: result.data.message,
-          timestamp: new Date(result.data.created_at).toLocaleTimeString('en-US', { 
+          timestamp: messageDate.toLocaleTimeString('en-US', { 
             hour: '2-digit', 
             minute: '2-digit' 
           }),
+          dateKey: dateKey,
+          dateLabel: dateLabel,
           isMe: true,
         };
         setMessages(prev => prev.map(msg => msg.id === tempMessage.id ? realMessage : msg));
@@ -220,40 +272,74 @@ export default function ChatScreen() {
               </Text>
             </View>
           ) : (
-            messages.map((msg) => (
-              <View
-                key={msg.id}
-                style={[
-                  styles.messageWrapper,
-                  msg.isMe ? styles.messageWrapperMe : styles.messageWrapperOther,
-                  isRTL && (msg.isMe ? styles.messageWrapperMeRTL : styles.messageWrapperOtherRTL)
-                ]}
-              >
-                <View
-                  style={[
-                    styles.messageBubble,
-                    msg.isMe ? styles.messageBubbleMe : styles.messageBubbleOther
-                  ]}
-                >
-                  {!msg.isMe && (
-                    <Text style={styles.messageSender}>{msg.senderName}</Text>
-                  )}
-                  <Text style={[
-                    styles.messageText,
-                    msg.isMe ? styles.messageTextMe : styles.messageTextOther,
-                    isRTL && styles.textRTL
-                  ]}>
-                    {msg.text}
-                  </Text>
-                  <Text style={[
-                    styles.messageTime,
-                    msg.isMe ? styles.messageTimeMe : styles.messageTimeOther
-                  ]}>
-                    {msg.timestamp}
-                  </Text>
-                </View>
-              </View>
-            ))
+            (() => {
+              // Group messages by date
+              const groupedMessages = [];
+              let currentDateKey = null;
+              
+              messages.forEach((msg, index) => {
+                // Add date separator if this is a new day
+                if (msg.dateKey !== currentDateKey) {
+                  currentDateKey = msg.dateKey;
+                  groupedMessages.push({
+                    type: 'date',
+                    dateKey: msg.dateKey,
+                    dateLabel: msg.dateLabel,
+                    id: `date_${msg.dateKey}`,
+                  });
+                }
+                // Add the message
+                groupedMessages.push(msg);
+              });
+              
+              return groupedMessages.map((item, index) => {
+                if (item.type === 'date') {
+                  return (
+                    <View key={item.id} style={styles.dateSeparator}>
+                      <View style={styles.dateSeparatorLine} />
+                      <Text style={styles.dateSeparatorText}>{item.dateLabel}</Text>
+                      <View style={styles.dateSeparatorLine} />
+                    </View>
+                  );
+                }
+                
+                const msg = item;
+                return (
+                  <View
+                    key={msg.id}
+                    style={[
+                      styles.messageWrapper,
+                      msg.isMe ? styles.messageWrapperMe : styles.messageWrapperOther,
+                      isRTL && (msg.isMe ? styles.messageWrapperMeRTL : styles.messageWrapperOtherRTL)
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.messageBubble,
+                        msg.isMe ? styles.messageBubbleMe : styles.messageBubbleOther
+                      ]}
+                    >
+                      {!msg.isMe && (
+                        <Text style={styles.messageSender}>{msg.senderName}</Text>
+                      )}
+                      <Text style={[
+                        styles.messageText,
+                        msg.isMe ? styles.messageTextMe : styles.messageTextOther,
+                        isRTL && styles.textRTL
+                      ]}>
+                        {msg.text}
+                      </Text>
+                      <Text style={[
+                        styles.messageTime,
+                        msg.isMe ? styles.messageTimeMe : styles.messageTimeOther
+                      ]}>
+                        {msg.timestamp}
+                      </Text>
+                    </View>
+                  </View>
+                );
+              });
+            })()
           )}
         </ScrollView>
 
@@ -351,6 +437,23 @@ const styles = StyleSheet.create({
   messagesContent: {
     padding: 16,
     paddingBottom: 20,
+  },
+  dateSeparator: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    paddingHorizontal: 16,
+  },
+  dateSeparatorLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: '#e2e8f0',
+  },
+  dateSeparatorText: {
+    paddingHorizontal: 12,
+    fontSize: 12,
+    color: '#64748b',
+    fontWeight: '500',
   },
   messageWrapper: {
     marginBottom: 16,

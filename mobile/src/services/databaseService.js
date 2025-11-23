@@ -655,6 +655,45 @@ export const getTotalUnreadCount = async (userId) => {
  * @param {object} options - Query options
  * @returns {Promise<object>} - Messages list
  */
+/**
+ * Get messages for multiple transactions at once
+ * @param {string[]} transactionIds - Array of transaction IDs
+ * @returns {Promise<object>} - Messages grouped by transaction_id
+ */
+export const getMessagesForTransactions = async (transactionIds) => {
+  try {
+    if (!transactionIds || transactionIds.length === 0) {
+      return { data: {}, error: null };
+    }
+
+    const { data, error } = await supabase
+      .from('messages')
+      .select('id, transaction_id, sender_id, message, created_at')
+      .in('transaction_id', transactionIds)
+      .order('created_at', { ascending: true });
+
+    if (error) {
+      throw error;
+    }
+
+    // Group messages by transaction_id
+    const messagesByTransaction = {};
+    if (data) {
+      data.forEach(msg => {
+        if (!messagesByTransaction[msg.transaction_id]) {
+          messagesByTransaction[msg.transaction_id] = [];
+        }
+        messagesByTransaction[msg.transaction_id].push(msg);
+      });
+    }
+
+    return { data: messagesByTransaction, error: null };
+  } catch (error) {
+    console.error('Get messages for transactions error:', error);
+    return { data: null, error: error.message || 'Failed to fetch messages' };
+  }
+};
+
 export const getMessages = async (transactionId, options = {}) => {
   try {
     const { data, error } = await supabase

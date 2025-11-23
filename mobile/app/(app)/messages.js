@@ -1,7 +1,9 @@
 import React, { useContext, useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Platform } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { Search } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as DatabaseService from '../../src/services/databaseService';
@@ -14,6 +16,9 @@ export default function MessagesScreen() {
 
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [chatMessages, setChatMessages] = useState({}); // Store messages for each chat
+  const [loadingMessages, setLoadingMessages] = useState(false);
 
   const fetchChats = useCallback(async () => {
     if (!state.user?.id) {
@@ -39,6 +44,31 @@ export default function MessagesScreen() {
     fetchChats();
   }, [fetchChats]);
 
+  // Fetch messages for all chats when needed for search
+  const fetchChatMessages = useCallback(async (chatList) => {
+    if (!chatList || chatList.length === 0) {
+      setChatMessages({});
+      return;
+    }
+
+    setLoadingMessages(true);
+    try {
+      const transactionIds = chatList.map(chat => chat.transactionId).filter(Boolean);
+      if (transactionIds.length > 0) {
+        const result = await DatabaseService.getMessagesForTransactions(transactionIds);
+        if (result.data) {
+          setChatMessages(result.data);
+        } else if (result.error) {
+          console.error('Error fetching chat messages:', result.error);
+        }
+      }
+    } catch (error) {
+      console.error('Error fetching chat messages:', error);
+    } finally {
+      setLoadingMessages(false);
+    }
+  }, []);
+
   useFocusEffect(
     useCallback(() => {
       if (state.user?.id) {
@@ -48,6 +78,13 @@ export default function MessagesScreen() {
       }
     }, [state.user?.id, fetchChats])
   );
+
+  // Fetch messages when chats are loaded (for search functionality)
+  useEffect(() => {
+    if (chats.length > 0) {
+      fetchChatMessages(chats);
+    }
+  }, [chats, fetchChatMessages]);
 
   // Set up realtime subscriptions for new messages and transactions
   useEffect(() => {
@@ -133,17 +170,58 @@ export default function MessagesScreen() {
     );
   }
 
+  const filteredChats = chats.filter(chat => {
+    if (!searchQuery.trim()) return true;
+    const query = searchQuery.toLowerCase();
+    
+    // Search in chat metadata
+    const matchesMetadata = (
+      chat.otherParty?.toLowerCase().includes(query) ||
+      chat.transactionTitle?.toLowerCase().includes(query) ||
+      chat.lastMessage?.toLowerCase().includes(query)
+    );
+
+    // Search in all messages for this chat
+    const messages = chatMessages[chat.transactionId] || [];
+    const matchesMessages = messages.some(msg => 
+      msg.message?.toLowerCase().includes(query)
+    );
+
+    return matchesMetadata || matchesMessages;
+  });
+
+  const getUserInitials = (name) => {
+    if (!name) return 'U';
+    const parts = name.split(' ');
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return name.substring(0, 2).toUpperCase();
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" />
-      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={[styles.headerTitle, isRTL && styles.textRTL]}>{t('messages')}</Text>
+      {/* Header */}
+      <View style={styles.header}>
+        <Text style={[styles.headerTitle, isRTL && styles.textRTL]}>Messages</Text>
+        
+        {/* Search Bar */}
+        <View style={styles.searchContainer}>
+          <Search size={20} color="#9ca3af" style={styles.searchIcon} />
+          <TextInput
+            style={[styles.searchInput, isRTL && styles.searchInputRTL]}
+            placeholder="Search conversations..."
+            placeholderTextColor="#9ca3af"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
         </View>
+      </View>
 
-        {/* Chats List */}
-        {chats.length === 0 ? (
+      {/* Chats List */}
+      <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        {filteredChats.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyStateIcon}>💬</Text>
             <Text style={[styles.emptyStateText, isRTL && styles.textRTL]}>{t('noMessages') || 'No Messages'}</Text>
@@ -153,43 +231,69 @@ export default function MessagesScreen() {
           </View>
         ) : (
           <View style={styles.chatsList}>
-            {chats.map((chat) => {
-              const statusColors = getStatusColor(chat.status);
+            {filteredChats.map((chat) => {
               return (
                 <TouchableOpacity
                   key={chat.id}
                   style={[styles.chatItem, isRTL && styles.chatItemRTL]}
                   onPress={() => router.push(`/(app)/chat?transactionId=${chat.transactionId}&chatId=${chat.id}`)}
+                  activeOpacity={0.7}
                 >
-                  <View style={styles.chatAvatar}>
-                    <Text style={styles.chatAvatarText}>
-                      {chat.otherParty.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2)}
-                    </Text>
+                  {/* Avatar */}
+                  <View style={[styles.avatarContainer, isRTL && styles.avatarContainerRTL]}>
+                    <LinearGradient
+                      colors={['#2563eb', '#8b5cf6']} // from-blue-600 to-purple-700
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.chatAvatar}
+                    >
+                      <Text style={styles.chatAvatarText}>
+                        {getUserInitials(chat.otherParty)}
+                      </Text>
+                    </LinearGradient>
+                    {/* Online indicator - placeholder for future implementation */}
+                    {/* {chat.online && <View style={styles.onlineIndicator} />} */}
                   </View>
+
+                  {/* Conversation Info */}
                   <View style={[styles.chatContent, isRTL && styles.chatContentRTL]}>
+                    {/* Transaction Title with Status Tag and Timestamp Row */}
                     <View style={[styles.chatHeader, isRTL && styles.chatHeaderRTL]}>
-                      <View style={styles.chatTitleContainer}>
+                      <View style={styles.titleWithStatus}>
                         <Text style={[styles.chatTitle, isRTL && styles.textRTL]} numberOfLines={1}>
                           {chat.transactionTitle}
                         </Text>
-                      </View>
-                      <View style={[styles.headerRight, isRTL && styles.headerRightRTL]}>
-                        <View style={[styles.statusBadge, { backgroundColor: statusColors.bg }]}>
-                          <Text style={[styles.statusBadgeText, { color: statusColors.text }]}>
+                        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(chat.status).bg }]}>
+                          <Text style={[styles.statusBadgeText, { color: getStatusColor(chat.status).text }]}>
                             {chat.status}
                           </Text>
                         </View>
-                        <Text style={[styles.chatTime, isRTL && styles.textRTL]}>{chat.lastMessageTime}</Text>
                       </View>
+                      <Text style={[styles.chatTime, isRTL && styles.textRTL]}>{chat.lastMessageTime}</Text>
                     </View>
+                    
+                    {/* Sender Name */}
+                    <Text style={[styles.chatName, isRTL && styles.textRTL]} numberOfLines={1}>
+                      {chat.otherParty}
+                    </Text>
+                    
+                    {/* Last Message and Unread Badge Row */}
                     <View style={[styles.chatMessageRow, isRTL && styles.chatMessageRowRTL]}>
-                      <Text style={[styles.chatOtherParty, isRTL && styles.textRTL]}>{chat.otherParty}</Text>
-                      <Text style={[styles.chatLastMessage, isRTL && styles.textRTL]} numberOfLines={1}>
-                        {chat.lastMessage}
+                      <Text 
+                        style={[
+                          styles.chatLastMessage, 
+                          isRTL && styles.textRTL,
+                          chat.unreadCount > 0 && styles.chatLastMessageUnread
+                        ]} 
+                        numberOfLines={1}
+                      >
+                        {chat.lastMessage || 'No messages yet'}
                       </Text>
                       {chat.unreadCount > 0 && (
                         <View style={[styles.unreadBadge, isRTL && styles.unreadBadgeRTL]}>
-                          <Text style={styles.unreadBadgeText}>{chat.unreadCount}</Text>
+                          <Text style={styles.unreadBadgeText} numberOfLines={1}>
+                            {chat.unreadCount > 99 ? '99+' : chat.unreadCount}
+                          </Text>
                         </View>
                       )}
                     </View>
@@ -207,20 +311,51 @@ export default function MessagesScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#ffffff',
+    backgroundColor: '#f9fafb', // gray-50 from Figma
   },
   scrollView: {
     flex: 1,
   },
+  scrollContent: {
+    paddingBottom: 100, // Space for bottom bar
+  },
   header: {
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
+    backgroundColor: '#ffffff',
+    paddingHorizontal: 24, // p-6 from Figma
+    paddingTop: Platform.OS === 'ios' ? 60 : 24,
+    paddingBottom: 24, // p-6 from Figma
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb', // border-gray-200 from Figma
   },
   headerTitle: {
-    fontSize: 28,
+    fontSize: 28, // text-3xl from Figma
     fontWeight: 'bold',
-    color: '#0f172a',
+    color: '#0f172a', // gray-900 from Figma
+    marginBottom: 16, // mb-4 from Figma
+  },
+  searchContainer: {
+    position: 'relative',
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  searchIcon: {
+    position: 'absolute',
+    left: 12, // left-3 from Figma
+    zIndex: 1,
+  },
+  searchInput: {
+    width: '100%',
+    paddingLeft: 40, // pl-10 from Figma
+    paddingRight: 16, // pr-4 from Figma
+    paddingVertical: 8, // py-2 from Figma
+    backgroundColor: '#f3f4f6', // bg-gray-100 from Figma
+    borderRadius: 8, // rounded-lg from Figma
+    fontSize: 16,
+    color: '#0f172a', // text-gray-900
+  },
+  searchInputRTL: {
+    paddingLeft: 16,
+    paddingRight: 40,
   },
   textRTL: {
     textAlign: 'right',
@@ -248,125 +383,140 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   chatsList: {
-    paddingHorizontal: 20,
-    paddingBottom: 100,
+    // No padding, items handle their own spacing
   },
   chatItem: {
     flexDirection: 'row',
-    paddingVertical: 16,
+    alignItems: 'center',
+    paddingVertical: 16, // p-4 from Figma
+    paddingHorizontal: 16, // p-4 from Figma
+    backgroundColor: '#ffffff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#f3f4f6', // border-gray-100 from Figma
   },
   chatItemRTL: {
     flexDirection: 'row-reverse',
   },
+  avatarContainer: {
+    position: 'relative',
+    flexShrink: 0,
+    marginRight: 12, // gap-3 from Figma
+  },
+  avatarContainerRTL: {
+    marginRight: 0,
+    marginLeft: 12,
+  },
   chatAvatar: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#8b5cf6',
+    width: 48, // w-12 from Figma
+    height: 48, // h-12 from Figma
+    borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 12,
   },
   chatAvatarText: {
-    fontSize: 20,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '600',
     color: '#ffffff',
+  },
+  onlineIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 12, // w-3 from Figma
+    height: 12, // h-3 from Figma
+    backgroundColor: '#10b981', // bg-green-500 from Figma
+    borderWidth: 2,
+    borderColor: '#ffffff',
+    borderRadius: 6,
   },
   chatContent: {
     flex: 1,
-    justifyContent: 'center',
+    minWidth: 0,
   },
   chatContentRTL: {
-    alignItems: 'flex-end',
+    // No special alignment needed for RTL
   },
   chatHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 4, // mb-1 from Figma (0.25rem = 4px)
   },
   chatHeaderRTL: {
     flexDirection: 'row-reverse',
   },
-  chatTitleContainer: {
-    flex: 1,
-    marginRight: 8,
-    minWidth: 0,
-  },
-  chatTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: '#0f172a',
-  },
-  headerRight: {
+  titleWithStatus: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    flexShrink: 0,
+    flex: 1,
+    marginRight: 8,
+    gap: 8, // gap-2 from Figma
+    flexWrap: 'wrap',
   },
-  headerRightRTL: {
-    flexDirection: 'row-reverse',
+  chatTitle: {
+    fontSize: 16, // text-base from Figma
+    fontWeight: '600', // font-semibold from Figma
+    color: '#0f172a', // text-gray-900 from Figma
   },
   statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: 8, // px-2 from Figma
+    paddingVertical: 4, // py-1 from Figma
+    borderRadius: 9999, // rounded-full from Figma (pill shape)
   },
   statusBadgeText: {
-    fontSize: 10,
-    fontWeight: '600',
+    fontSize: 12, // text-xs from Figma
+    fontWeight: '600', // font-medium from Figma
+  },
+  chatName: {
+    fontSize: 14, // text-sm from Figma
+    fontWeight: '400', // normal weight
+    color: '#0f172a', // text-gray-900 from Figma
+    marginBottom: 4, // mb-1 from Figma
   },
   chatTime: {
-    fontSize: 12,
-    color: '#64748b',
+    fontSize: 14, // text-sm from Figma
+    color: '#6b7280', // text-gray-500 from Figma
     flexShrink: 0,
   },
   chatMessageRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    position: 'relative',
-    paddingRight: 40,
+    justifyContent: 'space-between',
   },
   chatMessageRowRTL: {
     flexDirection: 'row-reverse',
-    paddingRight: 0,
-    paddingLeft: 40,
-  },
-  chatOtherParty: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#3b82f6',
-    marginRight: 8,
-    flexShrink: 0,
   },
   chatLastMessage: {
     flex: 1,
-    fontSize: 14,
-    color: '#64748b',
+    fontSize: 14, // text-sm from Figma
+    color: '#6b7280', // text-gray-500 from Figma
     minWidth: 0,
+    marginRight: 8,
+  },
+  chatLastMessageUnread: {
+    color: '#0f172a', // text-gray-900 from Figma (when unread)
+    fontWeight: '500', // font-medium from Figma
   },
   unreadBadge: {
-    position: 'absolute',
-    top: -2,
-    right: 0,
-    backgroundColor: '#3b82f6',
-    borderRadius: 10,
-    minWidth: 20,
-    height: 20,
+    backgroundColor: '#2563eb', // bg-blue-600 from Figma
+    borderRadius: 9999, // rounded-full from Figma
+    minWidth: 20, // w-5 from Figma (1.25rem = 20px) - minWidth to allow expansion for larger numbers
+    height: 20, // h-5 from Figma (1.25rem = 20px)
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 6,
+    flexShrink: 0,
+    marginLeft: 8, // ml-2 from Figma (0.5rem = 8px)
+    paddingHorizontal: 6, // Allow padding for larger numbers
   },
   unreadBadgeRTL: {
-    right: 'auto',
-    left: 0,
+    marginLeft: 0,
+    marginRight: 8,
   },
   unreadBadgeText: {
-    fontSize: 12,
-    fontWeight: 'bold',
+    fontSize: 12, // text-xs from Figma
+    fontWeight: '600', // font-medium from Figma
     color: '#ffffff',
+    textAlign: 'center',
   },
   loadingContainer: {
     flex: 1,
