@@ -1,5 +1,5 @@
-import React, { useContext, useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Platform } from 'react-native';
+import React, { useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Platform } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Search } from 'lucide-react-native';
@@ -15,14 +15,15 @@ export default function MessagesScreen() {
   const router = useRouter();
 
   const [chats, setChats] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [chatMessages, setChatMessages] = useState({}); // Store messages for each chat
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [timeUpdateKey, setTimeUpdateKey] = useState(0);
+  
+  const fetchChatsRef = useRef(null);
 
   const fetchChats = useCallback(async () => {
     if (!state.user?.id) {
-      setLoading(false);
       return;
     }
 
@@ -35,10 +36,13 @@ export default function MessagesScreen() {
       }
     } catch (error) {
       console.error('Error fetching chats:', error);
-    } finally {
-      setLoading(false);
     }
   }, [state.user?.id]);
+
+  // Store fetchChats in ref so subscription can access latest version
+  useEffect(() => {
+    fetchChatsRef.current = fetchChats;
+  }, [fetchChats]);
 
   useEffect(() => {
     fetchChats();
@@ -86,6 +90,15 @@ export default function MessagesScreen() {
     }
   }, [chats, fetchChatMessages]);
 
+  // Update timestamps periodically for relative times (Just now, X minutes ago, etc.)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTimeUpdateKey(prev => prev + 1);
+    }, 60000); // Update every minute
+
+    return () => clearInterval(interval);
+  }, []);
+
   // Set up realtime subscriptions for new messages and transactions
   useEffect(() => {
     if (!state.user?.id) {
@@ -94,7 +107,7 @@ export default function MessagesScreen() {
 
     console.log('Setting up realtime subscriptions for messages and transactions...');
     
-    // Subscribe to INSERT events on messages table
+    // Subscribe to INSERT and UPDATE events on messages table
     const messagesChannel = supabase
       .channel(`messages-changes-${state.user.id}`)
       .on(
@@ -105,16 +118,41 @@ export default function MessagesScreen() {
           table: 'messages',
         },
         (payload) => {
-          console.log('New message detected:', payload.new);
+          console.log('🆕 New message detected:', payload.new);
           // Refresh chats list when a new message is sent
-          fetchChats();
+          if (fetchChatsRef.current) {
+            fetchChatsRef.current();
+          }
         }
       )
-      .subscribe((status) => {
-        console.log('Messages subscription status:', status);
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+        },
+        (payload) => {
+          console.log('🔄 Message updated:', payload.new);
+          // Refresh chats list when message is updated (read status, etc.)
+          if (fetchChatsRef.current) {
+            fetchChatsRef.current();
+          }
+        }
+      )
+      .subscribe((status, err) => {
+        console.log('📡 Messages subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to message changes');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Messages subscription error:', err);
+          console.error('⚠️ Make sure to run the migration: enable_realtime_for_tables.sql');
+        } else if (status === 'TIMED_OUT') {
+          console.error('⏱️ Messages subscription timed out');
+        }
       });
 
-    // Subscribe to INSERT events on transactions table (for new chats)
+    // Subscribe to INSERT and UPDATE events on transactions table (for new chats and updates)
     const transactionsChannel = supabase
       .channel(`transactions-changes-messages-${state.user.id}`)
       .on(
@@ -127,23 +165,51 @@ export default function MessagesScreen() {
         (payload) => {
           // Check if the new transaction involves the current user
           if (payload.new.buyer_id === state.user.id || payload.new.seller_id === state.user.id) {
-            console.log('New transaction detected (relevant for chats):', payload.new);
+            console.log('🆕 New transaction detected (relevant for chats):', payload.new);
             // Refresh chats list when a new transaction is created
-            fetchChats();
+            if (fetchChatsRef.current) {
+              fetchChatsRef.current();
+            }
           }
         }
       )
-      .subscribe((status) => {
-        console.log('Transactions subscription status:', status);
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'transactions',
+        },
+        (payload) => {
+          // Check if the updated transaction involves the current user
+          if (payload.new.buyer_id === state.user.id || payload.new.seller_id === state.user.id) {
+            console.log('🔄 Transaction updated (relevant for chats):', payload.new);
+            // Refresh chats list when transaction is updated (status change, etc.)
+            if (fetchChatsRef.current) {
+              fetchChatsRef.current();
+            }
+          }
+        }
+      )
+      .subscribe((status, err) => {
+        console.log('📡 Transactions subscription status (messages):', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to transaction changes (messages)');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Transactions subscription error:', err);
+          console.error('⚠️ Make sure to run the migration: enable_realtime_for_tables.sql');
+        } else if (status === 'TIMED_OUT') {
+          console.error('⏱️ Transactions subscription timed out');
+        }
       });
 
     // Cleanup subscriptions on unmount
     return () => {
-      console.log('Cleaning up realtime subscriptions...');
+      console.log('🧹 Cleaning up realtime subscriptions...');
       supabase.removeChannel(messagesChannel);
       supabase.removeChannel(transactionsChannel);
     };
-  }, [state.user?.id, fetchChats]);
+  }, [state.user?.id]);
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -158,17 +224,6 @@ export default function MessagesScreen() {
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.container}>
-        <StatusBar barStyle="dark-content" />
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#3b82f6" />
-          <Text style={[styles.loadingText, isRTL && styles.textRTL]}>{t('loading') || 'Loading...'}</Text>
-        </View>
-      </View>
-    );
-  }
 
   const filteredChats = chats.filter(chat => {
     if (!searchQuery.trim()) return true;
@@ -269,7 +324,23 @@ export default function MessagesScreen() {
                           </Text>
                         </View>
                       </View>
-                      <Text style={[styles.chatTime, isRTL && styles.textRTL]}>{chat.lastMessageTime}</Text>
+                      <Text style={[styles.chatTime, isRTL && styles.textRTL]} key={`time-${chat.transactionId}-${timeUpdateKey}`}>
+                        {(() => {
+                          if (!chat.lastMessageDate) return chat.lastMessageTime || 'No messages';
+                          const messageDate = new Date(chat.lastMessageDate);
+                          const now = new Date();
+                          const diffMs = now - messageDate;
+                          const diffMins = Math.floor(diffMs / 60000);
+                          const diffHours = Math.floor(diffMs / 3600000);
+                          const diffDays = Math.floor(diffMs / 86400000);
+                          
+                          if (diffMins < 1) return 'Just now';
+                          if (diffMins < 60) return `${diffMins} ${diffMins === 1 ? 'minute' : 'minutes'} ago`;
+                          if (diffHours < 24) return `${diffHours} ${diffHours === 1 ? 'hour' : 'hours'} ago`;
+                          if (diffDays < 7) return `${diffDays} ${diffDays === 1 ? 'day' : 'days'} ago`;
+                          return messageDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                        })()}
+                      </Text>
                     </View>
                     
                     {/* Sender Name */}

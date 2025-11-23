@@ -27,6 +27,7 @@ export default function NewTransactionScreen() {
 
   const [showSummary, setShowSummary] = useState(false);
   const [otherPartyName, setOtherPartyName] = useState('');
+  const [otherPartyId, setOtherPartyId] = useState(null);
   const [checkingUser, setCheckingUser] = useState(false);
 
   const roles = ['Buyer', 'Seller'];
@@ -62,12 +63,14 @@ export default function NewTransactionScreen() {
   const handleUserIdChange = (text) => {
     setFormData({ ...formData, userId: text });
     setOtherPartyName(''); // Clear name when input changes
+    setOtherPartyId(null); // Clear ID when input changes
   };
 
   // Debounced user lookup to fetch full name
   useEffect(() => {
     if (!formData.userId || !formData.userId.trim()) {
       setOtherPartyName('');
+      setOtherPartyId(null);
       setCheckingUser(false);
       return;
     }
@@ -82,7 +85,10 @@ export default function NewTransactionScreen() {
         
         if (result.error || !result.data) {
           setOtherPartyName('');
+          setOtherPartyId(null);
         } else {
+          // Store the other party's ID
+          setOtherPartyId(result.data.id);
           // Get the user's profile to get their full name
           const profileResult = await DatabaseService.getUserProfile(result.data.id);
           if (profileResult.data?.name) {
@@ -94,6 +100,7 @@ export default function NewTransactionScreen() {
       } catch (error) {
         console.error('Error fetching user name:', error);
         setOtherPartyName('');
+        setOtherPartyId(null);
       } finally {
         setCheckingUser(false);
       }
@@ -168,6 +175,17 @@ export default function NewTransactionScreen() {
       Alert.alert('Error', 'Please fill in all required fields');
       return;
     }
+
+    // Validate that the other party is not the same as the current user
+    if (otherPartyId && otherPartyId === state.user?.id) {
+      Alert.alert(
+        'Error',
+        'You cannot create a transaction where you are both the buyer and seller. Please select a different user.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     setShowSummary(true);
   };
 
@@ -215,28 +233,59 @@ export default function NewTransactionScreen() {
       let buyerId = state.user.id;
       let sellerId = state.user.id;
 
-      if (formData.userId && formData.userId.trim()) {
-        const otherPartyResult = await DatabaseService.findUserByIdentifier(formData.userId);
-        
-        if (otherPartyResult.error || !otherPartyResult.data) {
-          Alert.alert(
-            'User Not Found', 
-            otherPartyResult.error || 'Could not find the other user. Please check the User ID or Email and try again.',
-            [{ text: 'OK' }]
-          );
-          setIsSubmitting(false);
-          return;
-        }
+      // Validate that an other party is provided
+      if (!formData.userId || !formData.userId.trim()) {
+        Alert.alert(
+          'Error',
+          'Please provide the other party (username or email). You cannot be both buyer and seller in the same transaction.',
+          [{ text: 'OK' }]
+        );
+        setIsSubmitting(false);
+        return;
+      }
 
-        const otherPartyId = otherPartyResult.data.id;
+      const otherPartyResult = await DatabaseService.findUserByIdentifier(formData.userId);
+      
+      if (otherPartyResult.error || !otherPartyResult.data) {
+        Alert.alert(
+          'User Not Found', 
+          otherPartyResult.error || 'Could not find the other user. Please check the User ID or Email and try again.',
+          [{ text: 'OK' }]
+        );
+        setIsSubmitting(false);
+        return;
+      }
 
-        if (formData.role === 'Buyer') {
-          // Current user is buyer, other party is seller
-          sellerId = otherPartyId;
-        } else {
-          // Current user is seller, other party is buyer
-          buyerId = otherPartyId;
-        }
+      const otherPartyId = otherPartyResult.data.id;
+
+      // Validate that the other party is not the same as the current user
+      if (otherPartyId === state.user.id) {
+        Alert.alert(
+          'Error',
+          'You cannot create a transaction where you are both the buyer and seller. Please select a different user.',
+          [{ text: 'OK' }]
+        );
+        setIsSubmitting(false);
+        return;
+      }
+
+      if (formData.role === 'Buyer') {
+        // Current user is buyer, other party is seller
+        sellerId = otherPartyId;
+      } else {
+        // Current user is seller, other party is buyer
+        buyerId = otherPartyId;
+      }
+
+      // Final validation: ensure buyer and seller are different
+      if (buyerId === sellerId) {
+        Alert.alert(
+          'Error',
+          'Buyer and seller cannot be the same person. Please check your selection.',
+          [{ text: 'OK' }]
+        );
+        setIsSubmitting(false);
+        return;
       }
 
       // Prepare transaction data
@@ -250,6 +299,7 @@ export default function NewTransactionScreen() {
         fees_responsibility: formData.feesResponsibility,
         delivery_date: deliveryDate,
         status: 'pending', // or 'In Progress'
+        initiated_by: state.user.id, // Track who initiated the transaction
         // Store terms as JSON or in a separate table
         // For now, we'll store it as a text field if the schema supports it
         terms: formData.terms.filter(term => term.trim() !== '').join('\n'),

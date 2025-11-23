@@ -1,10 +1,11 @@
-import React, { useContext, useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import React, { useContext, useState, useEffect, useCallback } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as DatabaseService from '../../src/services/databaseService';
+import { supabase } from '../../src/lib/supabase';
 
 export default function WalletScreen() {
   const { state } = useContext(AuthContext);
@@ -72,7 +73,12 @@ export default function WalletScreen() {
         // Fetch wallet
         const walletResult = await DatabaseService.getUserWallet(state.user.id);
         if (walletResult.data) {
-          setAvailableBalance(parseFloat(walletResult.data.available_balance || walletResult.data.balance || 0));
+          // Use balance field from database
+          const balance = parseFloat(walletResult.data.balance || 0);
+          setAvailableBalance(balance);
+          console.log('Wallet balance fetched:', balance);
+        } else if (walletResult.error) {
+          console.error('Error fetching wallet:', walletResult.error);
         }
 
         // Fetch payment history
@@ -102,11 +108,175 @@ export default function WalletScreen() {
     fetchData();
   }, [state.user?.id, isTestUser]);
 
+  // Refresh wallet data when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      if (state.user?.id && !isTestUser) {
+        // Set loading immediately when screen comes into focus
+        setLoading(true);
+        const fetchData = async () => {
+          try {
+            // Fetch wallet
+            const walletResult = await DatabaseService.getUserWallet(state.user.id);
+            if (walletResult.data) {
+              const balance = parseFloat(walletResult.data.balance || 0);
+              setAvailableBalance(balance);
+              console.log('Wallet balance refreshed:', balance);
+            }
+
+            // Fetch payment history
+            const historyResult = await DatabaseService.getTransactionHistory(state.user.id);
+            if (historyResult.data) {
+              const formattedHistory = historyResult.data.map(item => ({
+                id: item.id,
+                name: item.description || item.name || 'Transaction',
+                date: new Date(item.created_at || item.date).toLocaleDateString('en-US', { 
+                  month: 'short', 
+                  day: 'numeric', 
+                  year: 'numeric' 
+                }),
+                amount: parseFloat(item.amount || 0),
+                type: item.type || (item.amount >= 0 ? 'credit' : 'debit'),
+              }));
+              setPaymentHistory(formattedHistory);
+            }
+
+            setLoading(false);
+          } catch (error) {
+            console.error('Error refreshing wallet data:', error);
+            setLoading(false);
+          }
+        };
+        fetchData();
+      }
+    }, [state.user?.id, isTestUser])
+  );
+
+  // Set up realtime subscriptions for wallet balance and transaction history
+  useEffect(() => {
+    if (!state.user?.id || isTestUser) {
+      return;
+    }
+
+    console.log('Setting up realtime subscriptions for wallet...');
+    
+    const refreshWalletData = async () => {
+      try {
+        // Fetch wallet
+        const walletResult = await DatabaseService.getUserWallet(state.user.id);
+        if (walletResult.data) {
+          const balance = parseFloat(walletResult.data.balance || 0);
+          setAvailableBalance(balance);
+          console.log('Wallet balance updated via realtime:', balance);
+        }
+
+        // Fetch payment history
+        const historyResult = await DatabaseService.getTransactionHistory(state.user.id);
+        if (historyResult.data) {
+          const formattedHistory = historyResult.data.map(item => ({
+            id: item.id,
+            name: item.description || item.name || 'Transaction',
+            date: new Date(item.created_at || item.date).toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric', 
+              year: 'numeric' 
+            }),
+            amount: parseFloat(item.amount || 0),
+            type: item.type || (item.amount >= 0 ? 'credit' : 'debit'),
+          }));
+          setPaymentHistory(formattedHistory);
+        }
+      } catch (error) {
+        console.error('Error refreshing wallet data via realtime:', error);
+      }
+    };
+
+    // Subscribe to UPDATE events on wallets table
+    // Listen to all wallet updates and filter by user_id in callback
+    const walletChannel = supabase
+      .channel(`wallet-changes-${state.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'wallets',
+        },
+        (payload) => {
+          console.log('Wallet update detected:', payload.new);
+          // Check if this wallet belongs to the current user
+          if (payload.new.user_id === state.user.id) {
+            const newBalance = parseFloat(payload.new.balance || 0);
+            setAvailableBalance(newBalance);
+            console.log('✅ Wallet balance updated via realtime:', newBalance);
+            // Also refresh payment history
+            refreshWalletData();
+          } else {
+            console.log('Wallet update is for different user, ignoring...');
+          }
+        }
+      )
+      .subscribe((status, err) => {
+        console.log('Wallet subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to wallet changes');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Wallet subscription error:', err);
+          console.error('Make sure to run the migration: enable_realtime_for_tables.sql');
+        } else if (status === 'TIMED_OUT') {
+          console.error('⏱️ Wallet subscription timed out');
+        }
+      });
+
+    // Subscribe to INSERT events on transaction_history table
+    // Listen to all inserts and filter by user_id in callback
+    const historyChannel = supabase
+      .channel(`transaction-history-changes-${state.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'transaction_history',
+        },
+        (payload) => {
+          console.log('Transaction history insert detected:', payload.new);
+          // Check if this history entry belongs to the current user
+          if (payload.new.user_id === state.user.id) {
+            console.log('✅ New transaction history entry for current user');
+            // Refresh wallet data when new history entry is added
+            refreshWalletData();
+          } else {
+            console.log('Transaction history entry is for different user, ignoring...');
+          }
+        }
+      )
+      .subscribe((status, err) => {
+        console.log('Transaction history subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to transaction history changes');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Transaction history subscription error:', err);
+          console.error('Make sure to run the migration: enable_realtime_for_tables.sql');
+        } else if (status === 'TIMED_OUT') {
+          console.error('⏱️ Transaction history subscription timed out');
+        }
+      });
+
+    // Cleanup subscriptions on unmount
+    return () => {
+      console.log('Cleaning up wallet realtime subscriptions...');
+      supabase.removeChannel(walletChannel);
+      supabase.removeChannel(historyChannel);
+    };
+  }, [state.user?.id, isTestUser]);
+
   if (loading) {
     return (
       <View style={styles.container}>
         <StatusBar barStyle="dark-content" />
         <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#8b5cf6" />
           <Text style={styles.loadingText}>{t('loading') || 'Loading...'}</Text>
         </View>
       </View>
@@ -351,10 +521,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingTop: 100,
+    gap: 12,
   },
   loadingText: {
     fontSize: 16,
     color: '#64748b',
+    marginTop: 8,
   },
 });
 

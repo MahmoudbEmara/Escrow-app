@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect } from 'react';
+import React, { useState, useContext, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -6,7 +6,9 @@ import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as TransactionService from '../../src/services/transactionService';
 import * as DatabaseService from '../../src/services/databaseService';
+import { supabase } from '../../src/lib/supabase';
 import { TransactionState, getStateDisplayName, getStateColors } from '../../src/constants/transactionStates';
+import TransactionProgressBar from '../../src/components/TransactionProgressBar';
 
 export default function TransactionDetailsScreen() {
   const router = useRouter();
@@ -15,6 +17,7 @@ export default function TransactionDetailsScreen() {
   const { t, isRTL } = useContext(LanguageContext);
   const [transaction, setTransaction] = useState(null);
   const [loading, setLoading] = useState(true);
+  const fetchTransactionRef = useRef(null);
 
   // Check if user is test user
   const isTestUser = state.user?.email?.toLowerCase() === 'test@test.com' || 
@@ -43,131 +46,198 @@ export default function TransactionDetailsScreen() {
     ],
   };
 
-  // Fetch transaction data
-  useEffect(() => {
-    const fetchTransaction = async () => {
-      if (!id) {
-        setLoading(false);
-        return;
-      }
+  // Fetch transaction data function
+  const fetchTransaction = useCallback(async () => {
+    if (!id) {
+      setLoading(false);
+      return;
+    }
 
-      // Use test data for test user
-      if (isTestUser) {
-        setTransaction(testTransaction);
-        setLoading(false);
-        return;
-      }
+    // Use test data for test user
+    if (isTestUser) {
+      setTransaction(testTransaction);
+      setLoading(false);
+      return;
+    }
 
-      try {
-        const result = await TransactionService.getTransactionWithStateInfo(id, state.user?.id);
-        if (result.data) {
-          const txn = result.data;
-          const stateInfo = txn.stateInfo || {};
-          
-          // Determine user role - prevent being both buyer and seller
-          const userId = state.user?.id;
-          const isBuyer = txn.buyer_id === userId;
-          const isSeller = txn.seller_id === userId;
-          
-          // If somehow user is both, prioritize buyer role
-          let userRole = 'Buyer';
-          if (isBuyer && !isSeller) {
-            userRole = 'Buyer';
-          } else if (isSeller && !isBuyer) {
-            userRole = 'Seller';
-          } else if (isBuyer && isSeller) {
-            // Edge case: user is both (shouldn't happen, but handle it)
-            console.warn('User is both buyer and seller - defaulting to buyer');
-            userRole = 'Buyer';
-          } else {
-            // User is neither - determine from stateInfo or default
-            userRole = stateInfo.isBuyer ? 'Buyer' : (stateInfo.isSeller ? 'Seller' : 'Buyer');
-          }
-          
-          // Fetch buyer and seller profiles for names
-          let buyerName = 'Buyer';
-          let sellerName = 'Seller';
-          
-          if (txn.buyer_id) {
-            const buyerProfile = await DatabaseService.getUserProfile(txn.buyer_id);
-            buyerName = buyerProfile.data?.name || 'Buyer';
-          }
-          
-          if (txn.seller_id) {
-            const sellerProfile = await DatabaseService.getUserProfile(txn.seller_id);
-            sellerName = sellerProfile.data?.name || 'Seller';
-          }
-
-          // Convert terms to array - handle both string and array formats
-          let termsArray = [];
-          if (txn.transaction_terms && Array.isArray(txn.transaction_terms)) {
-            termsArray = txn.transaction_terms.map(term => term.term || term);
-          } else if (txn.terms) {
-            if (typeof txn.terms === 'string') {
-              termsArray = txn.terms.split('\n').filter(term => term.trim() !== '');
-            } else if (Array.isArray(txn.terms)) {
-              termsArray = txn.terms;
-            }
-          }
-
-          // Normalize status for available actions calculation
-          const rawStatus = txn.status || 'draft';
-          const statusLower = (rawStatus || '').toLowerCase().trim();
-          const normalizedStatus = statusLower === 'pending' ? TransactionState.PENDING_APPROVAL : 
-                                  statusLower === 'accepted' ? TransactionState.ACCEPTED :
-                                  statusLower === 'funded' ? TransactionState.FUNDED :
-                                  statusLower === 'in progress' || statusLower === 'in_progress' ? TransactionState.IN_PROGRESS :
-                                  statusLower === 'delivered' ? TransactionState.DELIVERED :
-                                  statusLower === 'completed' ? TransactionState.COMPLETED :
-                                  statusLower === 'cancelled' || statusLower === 'canceled' ? TransactionState.CANCELLED :
-                                  statusLower === 'disputed' || statusLower === 'in dispute' ? TransactionState.DISPUTED :
-                                  rawStatus;
-
-          // Manually calculate available actions if stateInfo doesn't have them
-          let availableActions = stateInfo.availableActions || [];
-          if (availableActions.length === 0) {
-            if (userRole === 'Seller' && (normalizedStatus === TransactionState.PENDING_APPROVAL || statusLower === 'pending')) {
-              availableActions.push({ action: 'accept', state: TransactionState.ACCEPTED, label: 'Accept Transaction' });
-            }
-            if (userRole === 'Buyer' && (normalizedStatus === TransactionState.ACCEPTED || statusLower === 'accepted')) {
-              availableActions.push({ action: 'fund', state: TransactionState.FUNDED, label: 'Fund Transaction' });
-            }
-          }
-
-          setTransaction({
-            ...txn,
-            buyer: buyerName,
-            seller: sellerName,
-            startDate: new Date(txn.created_at).toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric', 
-              year: 'numeric' 
-            }),
-            deliveryDate: txn.delivery_date ? new Date(txn.delivery_date).toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric', 
-              year: 'numeric' 
-            }) : null,
-            amount: parseFloat(txn.amount || 0),
-            role: userRole,
-            terms: termsArray,
-            // Preserve stateInfo and add calculated values
-            stateInfo: {
-              ...stateInfo,
-              isBuyer: userRole === 'Buyer',
-              isSeller: userRole === 'Seller',
-              availableActions: availableActions,
-            },
-          });
+    try {
+      const result = await TransactionService.getTransactionWithStateInfo(id, state.user?.id);
+      if (result.data) {
+        const txn = result.data;
+        const stateInfo = txn.stateInfo || {};
+        
+        const userId = state.user?.id;
+        const isBuyer = txn.buyer_id === userId;
+        const isSeller = txn.seller_id === userId;
+        
+        let userRole = 'Buyer';
+        if (isBuyer && !isSeller) {
+          userRole = 'Buyer';
+        } else if (isSeller && !isBuyer) {
+          userRole = 'Seller';
+        } else if (isBuyer && isSeller) {
+          console.warn('User is both buyer and seller - defaulting to buyer');
+          userRole = 'Buyer';
+        } else {
+          userRole = stateInfo.isBuyer ? 'Buyer' : (stateInfo.isSeller ? 'Seller' : 'Buyer');
         }
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching transaction:', error);
-        setLoading(false);
-      }
-    };
+        
+        let buyerName = 'Buyer';
+        let sellerName = 'Seller';
+        
+        if (txn.buyer_id) {
+          const buyerProfile = await DatabaseService.getUserProfile(txn.buyer_id);
+          buyerName = buyerProfile.data?.name || 'Buyer';
+        }
+        
+        if (txn.seller_id) {
+          const sellerProfile = await DatabaseService.getUserProfile(txn.seller_id);
+          sellerName = sellerProfile.data?.name || 'Seller';
+        }
 
+        let termsArray = [];
+        if (txn.transaction_terms && Array.isArray(txn.transaction_terms)) {
+          termsArray = txn.transaction_terms.map(term => term.term || term);
+        } else if (txn.terms) {
+          if (typeof txn.terms === 'string') {
+            termsArray = txn.terms.split('\n').filter(term => term.trim() !== '');
+          } else if (Array.isArray(txn.terms)) {
+            termsArray = txn.terms;
+          }
+        }
+
+        const rawStatus = txn.status || 'draft';
+        const statusLower = (rawStatus || '').toLowerCase().trim();
+        const normalizedStatus = statusLower === 'pending' ? TransactionState.PENDING_APPROVAL : 
+                                statusLower === 'accepted' ? TransactionState.ACCEPTED :
+                                statusLower === 'funded' ? TransactionState.FUNDED :
+                                statusLower === 'in progress' || statusLower === 'in_progress' ? TransactionState.IN_PROGRESS :
+                                statusLower === 'delivered' ? TransactionState.DELIVERED :
+                                statusLower === 'completed' ? TransactionState.COMPLETED :
+                                statusLower === 'cancelled' || statusLower === 'canceled' ? TransactionState.CANCELLED :
+                                statusLower === 'disputed' || statusLower === 'in dispute' ? TransactionState.DISPUTED :
+                                rawStatus;
+
+        let availableActions = stateInfo.availableActions || [];
+        if (availableActions.length === 0) {
+          if (userRole === 'Seller' && (normalizedStatus === TransactionState.PENDING_APPROVAL || statusLower === 'pending')) {
+            availableActions.push({ action: 'accept', state: TransactionState.ACCEPTED, label: 'Accept Transaction' });
+          }
+          if (userRole === 'Buyer' && (normalizedStatus === TransactionState.ACCEPTED || statusLower === 'accepted')) {
+            availableActions.push({ action: 'fund', state: TransactionState.FUNDED, label: 'Fund Transaction' });
+          }
+        }
+
+        setTransaction({
+          ...txn,
+          buyer: buyerName,
+          seller: sellerName,
+          startDate: new Date(txn.created_at).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            year: 'numeric' 
+          }),
+          deliveryDate: txn.delivery_date ? new Date(txn.delivery_date).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            year: 'numeric' 
+          }) : null,
+          amount: parseFloat(txn.amount || 0),
+          role: userRole,
+          terms: Array.isArray(termsArray) ? termsArray : [],
+          stateInfo: {
+            ...stateInfo,
+            isBuyer: userRole === 'Buyer',
+            isSeller: userRole === 'Seller',
+            availableActions: availableActions,
+          },
+        });
+      }
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching transaction:', error);
+      setLoading(false);
+    }
+  }, [id, state.user?.id, isTestUser]);
+
+  // Store fetchTransaction in ref so subscription can access latest version
+  useEffect(() => {
+    fetchTransactionRef.current = fetchTransaction;
+  }, [fetchTransaction]);
+
+  // Fetch transaction data on mount or when id changes
+  useEffect(() => {
+    // Reset state immediately when id changes to prevent showing old data
+    setTransaction(null);
+    setLoading(true);
     fetchTransaction();
+  }, [fetchTransaction]);
+
+  // Set up realtime subscription for transaction updates
+  useEffect(() => {
+    if (!id || !state.user?.id || isTestUser) {
+      return;
+    }
+
+    console.log('🔔 Setting up realtime subscription for transaction:', id);
+    
+    const channel = supabase
+      .channel(`transaction-details-${id}-${state.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'transactions',
+          filter: `id=eq.${id}`,
+        },
+        (payload) => {
+          console.log('🔄 Transaction updated in realtime:', payload.new);
+          const updatedTransaction = payload.new;
+          
+          // Check if this transaction involves the current user
+          if (updatedTransaction.buyer_id === state.user.id || updatedTransaction.seller_id === state.user.id) {
+            console.log('✅ Updated transaction involves current user, refreshing data...');
+            if (fetchTransactionRef.current) {
+              fetchTransactionRef.current();
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'transactions',
+          filter: `id=eq.${id}`,
+        },
+        (payload) => {
+          console.log('🗑️ Transaction deleted:', payload.old);
+          Alert.alert('Transaction Deleted', 'This transaction has been deleted.', [
+            {
+              text: 'OK',
+              onPress: () => router.back(),
+            },
+          ]);
+        }
+      )
+      .subscribe((status) => {
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Subscribed to transaction updates');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Realtime subscription error');
+        } else if (status === 'TIMED_OUT') {
+          console.error('⏱️ Realtime subscription timed out');
+        } else if (status === 'CLOSED') {
+          console.log('🔒 Realtime subscription closed');
+        }
+      });
+
+    return () => {
+      console.log('🧹 Cleaning up realtime subscription...');
+      supabase.removeChannel(channel);
+    };
   }, [id, state.user?.id, isTestUser]);
 
   // Use state machine colors
@@ -273,7 +343,62 @@ export default function TransactionDetailsScreen() {
         // Refresh transaction data
         const refreshResult = await TransactionService.getTransactionWithStateInfo(transaction.id, state.user.id);
         if (refreshResult.data) {
-          setTransaction(refreshResult.data);
+          const txn = refreshResult.data;
+          
+          // Ensure terms are properly formatted as an array
+          let termsArray = [];
+          if (txn.transaction_terms && Array.isArray(txn.transaction_terms)) {
+            termsArray = txn.transaction_terms.map(term => term.term || term);
+          } else if (txn.terms) {
+            if (typeof txn.terms === 'string') {
+              termsArray = txn.terms.split('\n').filter(term => term.trim() !== '');
+            } else if (Array.isArray(txn.terms)) {
+              termsArray = txn.terms;
+            }
+          }
+          
+          // Get buyer and seller names
+          let buyerName = 'Buyer';
+          let sellerName = 'Seller';
+          
+          if (txn.buyer_id === state.user.id) {
+            buyerName = state.user?.profile?.name || state.user?.email || 'You';
+          } else if (txn.buyer_id) {
+            const buyerProfile = await DatabaseService.getUserProfile(txn.buyer_id);
+            buyerName = buyerProfile.data?.name || 'Buyer';
+          }
+          
+          if (txn.seller_id === state.user.id) {
+            sellerName = state.user?.profile?.name || state.user?.email || 'You';
+          } else if (txn.seller_id) {
+            const sellerProfile = await DatabaseService.getUserProfile(txn.seller_id);
+            sellerName = sellerProfile.data?.name || 'Seller';
+          }
+          
+          // Determine user role
+          const userId = state.user?.id;
+          const isBuyer = txn.buyer_id === userId && txn.seller_id !== userId;
+          const isSeller = txn.seller_id === userId && txn.buyer_id !== userId;
+          const userRole = isBuyer ? 'Buyer' : (isSeller ? 'Seller' : 'Buyer');
+          
+          setTransaction({
+            ...txn,
+            buyer: buyerName,
+            seller: sellerName,
+            startDate: new Date(txn.created_at).toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric', 
+              year: 'numeric' 
+            }),
+            deliveryDate: txn.delivery_date ? new Date(txn.delivery_date).toLocaleDateString('en-US', { 
+              month: 'short', 
+              day: 'numeric', 
+              year: 'numeric' 
+            }) : null,
+            amount: parseFloat(txn.amount || 0),
+            role: userRole,
+            terms: Array.isArray(termsArray) ? termsArray : [],
+          });
         }
       } else if (result && result.error) {
         Alert.alert('Error', result.error);
@@ -336,6 +461,7 @@ export default function TransactionDetailsScreen() {
       <View style={styles.container}>
         <StatusBar barStyle="dark-content" />
         <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#3b82f6" />
           <Text style={styles.loadingText}>{t('loading') || 'Loading...'}</Text>
         </View>
       </View>
@@ -419,6 +545,9 @@ export default function TransactionDetailsScreen() {
           </View>
         </View>
 
+        {/* Progress Bar */}
+        <TransactionProgressBar status={currentState} />
+
         {/* Transaction Info Card */}
         <View style={styles.infoCard}>
           <Text style={styles.transactionTitle}>{transaction.title}</Text>
@@ -474,18 +603,25 @@ export default function TransactionDetailsScreen() {
 
           <View style={styles.termsSection}>
             <Text style={styles.infoLabel}>Terms:</Text>
-            {transaction.terms.map((term, index) => (
-              <Text key={index} style={styles.termItem}>• {term}</Text>
-            ))}
+            {transaction.terms && Array.isArray(transaction.terms) && transaction.terms.length > 0 ? (
+              transaction.terms.map((term, index) => (
+                <Text key={index} style={styles.termItem}>• {term}</Text>
+              ))
+            ) : (
+              <Text style={styles.termItem}>No terms specified</Text>
+            )}
           </View>
         </View>
 
         {/* Action Buttons */}
         <View style={styles.actionsContainer}>
           {/* Accept/Reject Buttons - Show prominently for pending_approval state */}
+          {/* Show to the OTHER party (not the initiator) - both buyer and seller can accept if they didn't initiate */}
           {(() => {
-            // Show buttons if status is "Pending" (old) or "pending_approval" (new) and user is seller
-            const showAcceptReject = isPendingApproval && isSeller && !isBuyer;
+            // Show buttons if status is "Pending" (old) or "pending_approval" (new)
+            // Both buyer and seller can accept if the transaction is pending approval
+            // The accept button will be shown to whoever can accept based on availableActions
+            const showAcceptReject = isPendingApproval && availableActions.some(action => action.action === 'accept');
             
             if (showAcceptReject) {
               return (
@@ -568,15 +704,26 @@ export default function TransactionDetailsScreen() {
             <Text style={styles.messageButtonText}>{t('message') || 'Message'}</Text>
           </TouchableOpacity>
 
-          {/* Delete button - only show if status is draft */}
-          {currentState === TransactionState.DRAFT && (
-            <TouchableOpacity
-              style={styles.deleteButton}
-              onPress={handleDeleteTransaction}
-            >
-              <Text style={styles.deleteButtonText}>🗑️ {t('delete') || 'Delete Transaction'}</Text>
-            </TouchableOpacity>
-          )}
+          {/* Delete button - show for draft or cancelled transactions only */}
+          {(() => {
+            const canDelete = 
+              currentState === TransactionState.DRAFT ||
+              currentState === TransactionState.CANCELLED ||
+              statusLower === 'cancelled' ||
+              statusLower === 'canceled';
+            
+            if (canDelete) {
+              return (
+                <TouchableOpacity
+                  style={styles.deleteButton}
+                  onPress={handleDeleteTransaction}
+                >
+                  <Text style={styles.deleteButtonText}>🗑️ {t('delete') || 'Delete Transaction'}</Text>
+                </TouchableOpacity>
+              );
+            }
+            return null;
+          })()}
 
           {/* Dynamic action buttons based on state machine - hide if we already showed accept/reject or fund/cancel */}
           {(() => {
@@ -790,10 +937,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingTop: 100,
+    gap: 12,
   },
   loadingText: {
     fontSize: 16,
     color: '#64748b',
+    marginTop: 8,
   },
   acceptRejectContainer: {
     flexDirection: 'row',

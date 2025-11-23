@@ -1,5 +1,5 @@
 import React, { useState, useContext, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl, Platform, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Filter } from 'lucide-react-native';
@@ -26,6 +26,8 @@ export default function HomeScreen() {
   const [totalInEscrow, setTotalInEscrow] = useState(0);
   const [incoming, setIncoming] = useState(0);
   const [outgoing, setOutgoing] = useState(0);
+  
+  const fetchDataRef = useRef(null);
   
   // --- Generate redirect URI for Expo Go ---
   const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
@@ -207,6 +209,11 @@ export default function HomeScreen() {
       }
     }, [state.user?.id, isTestUser, getUserDisplayName]);
 
+  // Store fetchData in ref so subscription can access latest version
+  useEffect(() => {
+    fetchDataRef.current = fetchData;
+  }, [fetchData]);
+
   // Handle pull-to-refresh
   const onRefresh = useCallback(() => {
     fetchData(true);
@@ -222,11 +229,11 @@ export default function HomeScreen() {
       return;
     }
 
-    console.log('Setting up realtime subscription for transactions...');
+    console.log('🔔 Setting up realtime subscription for transactions...');
     console.log('User ID:', state.user.id);
     
-    // Subscribe to INSERT and DELETE events on transactions table
-    // Listen to all INSERT events and filter in the callback to catch both buyer and seller cases
+    // Subscribe to INSERT, UPDATE, and DELETE events on transactions table
+    // Listen to all events and filter in the callback to catch both buyer and seller cases
     const channel = supabase
       .channel(`transactions-changes-${state.user.id}`)
       .on(
@@ -237,16 +244,41 @@ export default function HomeScreen() {
           table: 'transactions',
         },
         (payload) => {
-          console.log('New transaction detected:', payload.new);
+          console.log('🆕 New transaction detected:', payload.new);
           const newTransaction = payload.new;
           
           // Check if this transaction involves the current user
           if (newTransaction.buyer_id === state.user.id || newTransaction.seller_id === state.user.id) {
-            console.log('Transaction involves current user, refreshing data...');
-            // Refresh data when new transaction is created
-            fetchData();
+            console.log('✅ Transaction involves current user, refreshing data...');
+            // Refresh data when new transaction is created (use refresh mode to avoid loading spinner)
+            if (fetchDataRef.current) {
+              fetchDataRef.current(true);
+            }
           } else {
-            console.log('Transaction does not involve current user, ignoring...');
+            console.log('⏭️ Transaction does not involve current user, ignoring...');
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'transactions',
+        },
+        (payload) => {
+          console.log('🔄 Transaction updated:', payload.new);
+          const updatedTransaction = payload.new;
+          
+          // Check if this transaction involves the current user
+          if (updatedTransaction.buyer_id === state.user.id || updatedTransaction.seller_id === state.user.id) {
+            console.log('✅ Updated transaction involves current user, refreshing data...');
+            // Refresh data when transaction is updated (status change, etc.) - use refresh mode
+            if (fetchDataRef.current) {
+              fetchDataRef.current(true);
+            }
+          } else {
+            console.log('⏭️ Updated transaction does not involve current user, ignoring...');
           }
         }
       )
@@ -292,26 +324,38 @@ export default function HomeScreen() {
           }
         }
       )
-      .subscribe((status) => {
-        console.log('Realtime subscription status:', status);
+      .subscribe((status, err) => {
+        console.log('📡 Realtime subscription status:', status);
         if (status === 'SUBSCRIBED') {
-          console.log('Successfully subscribed to transaction changes');
+          console.log('✅ Successfully subscribed to transaction changes (INSERT, UPDATE, DELETE)');
+          console.log('🔔 Listening for transaction changes...');
         } else if (status === 'CHANNEL_ERROR') {
-          console.error('Realtime subscription error');
+          console.error('❌ Realtime subscription error:', err);
+          console.error('⚠️ Make sure to run the migration: enable_realtime_for_tables.sql');
+          console.error('⚠️ Also verify that Realtime is enabled in your Supabase project settings');
+        } else if (status === 'TIMED_OUT') {
+          console.error('⏱️ Realtime subscription timed out');
+          console.error('⚠️ Check your network connection and Supabase Realtime status');
+        } else if (status === 'CLOSED') {
+          console.log('🔒 Realtime subscription closed');
+        } else {
+          console.log('📊 Subscription status:', status);
         }
       });
 
     // Cleanup subscription on unmount
     return () => {
-      console.log('Cleaning up realtime subscription...');
+      console.log('🧹 Cleaning up realtime subscription...');
       supabase.removeChannel(channel);
     };
-  }, [state.user?.id, isTestUser, fetchData]);
+  }, [state.user?.id, isTestUser]);
 
   // Refresh data when screen comes into focus
   useFocusEffect(
     useCallback(() => {
       if (state.user?.id) {
+        // Set loading immediately when screen comes into focus
+        setLoading(true);
         fetchData();
       }
     }, [state.user?.id, fetchData])
@@ -380,6 +424,7 @@ export default function HomeScreen() {
       <View style={styles.container}>
         <StatusBar barStyle="dark-content" />
         <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#3b82f6" />
           <Text style={styles.loadingText}>{t('loading') || 'Loading...'}</Text>
         </View>
       </View>
@@ -990,9 +1035,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingTop: 100,
+    gap: 12,
   },
   loadingText: {
     fontSize: 16,
     color: '#64748b',
+    marginTop: 8,
   },
 });

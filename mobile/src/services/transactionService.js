@@ -1,4 +1,5 @@
 import * as DatabaseService from './databaseService';
+import { supabase } from '../lib/supabase';
 import { TransactionState, getValidNextStates, isValidTransition, STATE_DISPLAY_NAMES, getStateColors } from '../constants/transactionStates';
 
 /**
@@ -261,12 +262,26 @@ export const getTransactionWithStateInfo = async (transactionId, userId) => {
   const isBuyer = transaction.buyer_id === userId && transaction.seller_id !== userId;
   const isSeller = transaction.seller_id === userId && transaction.buyer_id !== userId;
 
+  // Determine who initiated the transaction
+  const initiatorId = transaction.initiated_by;
+  const isInitiator = initiatorId === userId;
+
   // Determine which actions the current user can perform
   const availableActions = [];
   
   if (isBuyer && !isSeller) {
     if (normalizedStatus === TransactionState.DRAFT || transaction.status === 'draft') {
       availableActions.push({ action: 'submit', state: TransactionState.PENDING_APPROVAL, label: 'Submit for Approval' });
+    }
+    // Buyer can accept when transaction is in pending_approval
+    // Only show accept if buyer is NOT the initiator (i.e., seller initiated)
+    if (normalizedStatus === TransactionState.PENDING_APPROVAL || 
+        (transaction.status || '').toLowerCase() === 'pending' ||
+        (transaction.status || '').toLowerCase() === 'pending_approval') {
+      // Show accept only if buyer is NOT the initiator
+      if (!isInitiator) {
+        availableActions.push({ action: 'accept', state: TransactionState.ACCEPTED, label: 'Accept Transaction' });
+      }
     }
     if (normalizedStatus === TransactionState.ACCEPTED || transaction.status === 'accepted') {
       availableActions.push({ action: 'fund', state: TransactionState.FUNDED, label: 'Fund Transaction' });
@@ -284,10 +299,18 @@ export const getTransactionWithStateInfo = async (transactionId, userId) => {
   }
 
   if (isSeller && !isBuyer) {
+    if (normalizedStatus === TransactionState.DRAFT || transaction.status === 'draft') {
+      availableActions.push({ action: 'submit', state: TransactionState.PENDING_APPROVAL, label: 'Submit for Approval' });
+    }
+    // Seller can accept when transaction is in pending_approval
+    // Only show accept if seller is NOT the initiator (i.e., buyer initiated)
     if (normalizedStatus === TransactionState.PENDING_APPROVAL || 
         (transaction.status || '').toLowerCase() === 'pending' ||
         (transaction.status || '').toLowerCase() === 'pending_approval') {
-      availableActions.push({ action: 'accept', state: TransactionState.ACCEPTED, label: 'Accept Transaction' });
+      // Show accept only if seller is NOT the initiator
+      if (!isInitiator) {
+        availableActions.push({ action: 'accept', state: TransactionState.ACCEPTED, label: 'Accept Transaction' });
+      }
     }
     if (normalizedStatus === TransactionState.FUNDED || transaction.status === 'funded') {
       availableActions.push({ action: 'start_work', state: TransactionState.IN_PROGRESS, label: 'Start Work' });

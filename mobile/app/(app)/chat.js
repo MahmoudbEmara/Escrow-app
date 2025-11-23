@@ -6,6 +6,7 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as DatabaseService from '../../src/services/databaseService';
+import { supabase } from '../../src/lib/supabase';
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -19,8 +20,10 @@ export default function ChatScreen() {
   const [sending, setSending] = useState(false);
   const scrollViewRef = useRef(null);
   const insets = useSafeAreaInsets();
+  const fetchChatDataRef = useRef(null);
+  const isFocusedRef = useRef(false);
 
-  const fetchChatData = useCallback(async () => {
+  const fetchChatData = useCallback(async (shouldMarkAsRead = true) => {
     if (!transactionId || !state.user?.id) {
       setLoading(false);
       return;
@@ -99,8 +102,15 @@ export default function ChatScreen() {
         });
         setMessages(formattedMessages);
 
-        // Mark messages as read
-        await DatabaseService.markMessagesAsRead(transactionId, state.user.id);
+        // Only mark messages as read if explicitly requested AND screen is focused
+        if (shouldMarkAsRead && isFocusedRef.current) {
+          await DatabaseService.markMessagesAsRead(transactionId, state.user.id);
+        }
+
+        // Scroll to bottom after messages are loaded
+        setTimeout(() => {
+          scrollViewRef.current?.scrollToEnd({ animated: false });
+        }, 100);
       }
     } catch (error) {
       console.error('Error fetching chat data:', error);
@@ -109,19 +119,43 @@ export default function ChatScreen() {
     }
   }, [transactionId, state.user?.id]);
 
+  // Store fetchChatData in ref so subscription can access latest version
   useEffect(() => {
-    fetchChatData();
+    fetchChatDataRef.current = fetchChatData;
   }, [fetchChatData]);
+
+  useEffect(() => {
+    if (transactionId && state.user?.id) {
+      setLoading(true);
+      setMessages([]);
+      setChatInfo(null);
+      fetchChatData(true);
+    }
+  }, [transactionId, fetchChatData]);
 
   useFocusEffect(
     useCallback(() => {
       if (transactionId && state.user?.id) {
-        fetchChatData();
+        isFocusedRef.current = true;
+        if (!chatInfo || chatInfo.transactionId !== transactionId) {
+          setLoading(true);
+          setMessages([]);
+          setChatInfo(null);
+          fetchChatData(true);
+        } else {
+          // If chat is already loaded, scroll to bottom when focused
+          setTimeout(() => {
+            scrollViewRef.current?.scrollToEnd({ animated: false });
+          }, 100);
+        }
       }
-    }, [transactionId, state.user?.id, fetchChatData])
+      return () => {
+        isFocusedRef.current = false;
+      };
+    }, [transactionId, state.user?.id, fetchChatData, chatInfo])
   );
 
-  // Auto-scroll to bottom when messages change
+  // Auto-scroll to bottom when messages change (for new messages)
   useEffect(() => {
     if (scrollViewRef.current && messages.length > 0) {
       setTimeout(() => {
@@ -129,6 +163,88 @@ export default function ChatScreen() {
       }, 100);
     }
   }, [messages]);
+
+  // Set up realtime subscription for new messages in this chat
+  useEffect(() => {
+    if (!transactionId || !state.user?.id) {
+      return;
+    }
+
+    console.log('🔔 Setting up realtime subscription for chat messages...');
+    console.log('Transaction ID:', transactionId);
+    
+    const channel = supabase
+      .channel(`chat-messages-${transactionId}-${state.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'messages',
+          filter: `transaction_id=eq.${transactionId}`,
+        },
+        (payload) => {
+          console.log('🆕 New message received in chat:', payload.new);
+          const newMessage = payload.new;
+          
+          // Only process messages for this transaction
+          if (newMessage.transaction_id !== transactionId) {
+            return;
+          }
+          
+          // Only refresh if the message is not from the current user (to avoid duplicate)
+          // or if it's from the current user but wasn't already added optimistically
+          if (newMessage.sender_id !== state.user.id || !messages.find(m => m.id === newMessage.id)) {
+            console.log('✅ Refreshing chat with new message');
+            if (fetchChatDataRef.current) {
+              // Don't mark as read if screen is not focused
+              fetchChatDataRef.current(false);
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'messages',
+          filter: `transaction_id=eq.${transactionId}`,
+        },
+        (payload) => {
+          console.log('🔄 Message updated in chat:', payload.new);
+          const updatedMessage = payload.new;
+          
+          // Only process messages for this transaction
+          if (updatedMessage.transaction_id !== transactionId) {
+            return;
+          }
+          
+          // Refresh to get updated read status, etc.
+          if (fetchChatDataRef.current) {
+            // Don't mark as read when just refreshing due to update
+            fetchChatDataRef.current(false);
+          }
+        }
+      )
+      .subscribe((status, err) => {
+        console.log('📡 Chat messages subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('✅ Successfully subscribed to chat messages');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('❌ Chat messages subscription error:', err);
+          console.error('⚠️ Make sure to run the migration: enable_realtime_for_tables.sql');
+        } else if (status === 'TIMED_OUT') {
+          console.error('⏱️ Chat messages subscription timed out');
+        }
+      });
+
+    // Cleanup subscription on unmount
+    return () => {
+      console.log('🧹 Cleaning up chat messages subscription...');
+      supabase.removeChannel(channel);
+    };
+  }, [transactionId, state.user?.id]);
 
   const handleSend = async () => {
     if (!message.trim() || !transactionId || !state.user?.id || sending) return;
@@ -234,7 +350,7 @@ export default function ChatScreen() {
       <StatusBar barStyle="dark-content" />
       {/* Header */}
       <View style={[styles.header, isRTL && styles.headerRTL]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={() => router.push('/(app)/messages')} style={styles.backButton}>
           <Text style={[styles.backIcon, isRTL && styles.backIconRTL]}>←</Text>
         </TouchableOpacity>
         <View style={styles.headerInfo}>

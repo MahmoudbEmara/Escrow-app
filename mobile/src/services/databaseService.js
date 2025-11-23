@@ -1,6 +1,5 @@
 import { supabase } from '../lib/supabase';
 import { isValidTransition } from '../constants/transactionStates';
-import * as NotificationService from './notificationService';
 
 /**
  * Database Service
@@ -85,7 +84,13 @@ export const insertIntoTable = async (table, data) => {
         details: error.details,
         hint: error.hint,
       });
-      throw error;
+      
+      return {
+        data: null,
+        error: error.message || `Failed to insert into ${table}`,
+        errorCode: error.code,
+        errorObject: error,
+      };
     }
 
     console.log(`Successfully inserted into ${table}:`, result);
@@ -98,6 +103,8 @@ export const insertIntoTable = async (table, data) => {
     return {
       data: null,
       error: error.message || `Failed to insert into ${table}`,
+      errorCode: error.code,
+      errorObject: error,
     };
   }
 };
@@ -352,11 +359,27 @@ export const transitionTransactionState = async (transactionId, toState, userId,
     const isAdmin = metadata.isAdmin || false;
 
     // Permission checks based on state (use normalized state)
-    if (normalizedToState === 'pending_approval' && !isBuyer) {
-      return { success: false, error: 'Only buyer can submit for approval' };
+    // Anyone can submit their own transaction for approval
+    if (normalizedToState === 'pending_approval') {
+      // Both buyer and seller can submit their own transaction for approval
+      if (!isBuyer && !isSeller) {
+        return { success: false, error: 'Only transaction participants can submit for approval' };
+      }
     }
-    if (normalizedToState === 'accepted' && !isSeller) {
-      return { success: false, error: 'Only seller can accept transaction' };
+    // The OTHER party (not the initiator) should accept/reject
+    // Check if transaction has initiated_by field to determine who can accept
+    if (normalizedToState === 'accepted') {
+      if (!isBuyer && !isSeller) {
+        return { success: false, error: 'Only transaction participants can accept' };
+      }
+      
+      // If initiated_by is set, only the OTHER party can accept
+      if (transaction.initiated_by) {
+        const isInitiator = transaction.initiated_by === userId;
+        if (isInitiator) {
+          return { success: false, error: 'Only the other party can accept this transaction' };
+        }
+      }
     }
     if (normalizedToState === 'funded' && !isBuyer) {
       return { success: false, error: 'Only buyer can fund transaction' };
@@ -382,8 +405,13 @@ export const transitionTransactionState = async (transactionId, toState, userId,
 
     // Update transaction state (use normalized state - must match database constraint)
     // Database constraint only allows: draft, pending_approval, accepted, funded, in_progress, delivered, completed, cancelled, disputed
-    // Ensure we're using the exact values from the constraint
+    // Ensure we're using the exact lowercase values from the constraint
     let dbStatus = normalizedToState;
+    
+    // Force lowercase to ensure case sensitivity doesn't cause issues
+    if (typeof dbStatus === 'string') {
+      dbStatus = dbStatus.toLowerCase().trim();
+    }
     
     // Map any variations to the exact constraint values
     if (dbStatus === 'pending') {
@@ -399,19 +427,54 @@ export const transitionTransactionState = async (transactionId, toState, userId,
     // Validate the status is one of the allowed values
     const allowedStatuses = ['draft', 'pending_approval', 'accepted', 'funded', 'in_progress', 'delivered', 'completed', 'cancelled', 'disputed'];
     if (!allowedStatuses.includes(dbStatus)) {
+      console.error('Invalid status value:', dbStatus, 'Original toState:', toState, 'Normalized:', normalizedToState);
       return {
         success: false,
         error: `Invalid status value: ${dbStatus}. Must be one of: ${allowedStatuses.join(', ')}`,
       };
     }
     
+    // Ensure dbStatus is exactly one of the allowed values (defensive check)
+    // Force exact match to avoid any case/whitespace issues
+    const exactStatus = allowedStatuses.find(s => s === dbStatus);
+    if (!exactStatus) {
+      console.error('Status normalization failed. dbStatus:', dbStatus, 'toState:', toState);
+      return {
+        success: false,
+        error: `Status normalization failed: ${dbStatus} is not in allowed list`,
+      };
+    }
+    
+    console.log('Updating transaction status:', {
+      transactionId,
+      fromState,
+      toState,
+      normalizedToState,
+      dbStatus: exactStatus,
+    });
+    
     const updateResult = await updateTable('transactions', transactionId, {
-      status: dbStatus,
+      status: exactStatus, // Use exactStatus to ensure perfect match
       updated_at: new Date().toISOString(),
       ...(metadata.stateMetadata || {}),
     });
 
     if (updateResult.error) {
+      console.error('Update transactions error:', updateResult.error);
+      
+      // Check if it's a constraint violation for status
+      if (updateResult.error.includes('transactions_status_check') || updateResult.error.includes('23514')) {
+        const errorMessage = `Status constraint violation. The database constraint may be outdated. ` +
+          `Please run the migration: migrations/update_transaction_status_constraint.sql ` +
+          `to update the constraint to include all required status values. ` +
+          `Attempted status: ${exactStatus}`;
+        console.error(errorMessage);
+        return {
+          success: false,
+          error: errorMessage,
+        };
+      }
+      
       return {
         success: false,
         error: updateResult.error,
@@ -419,19 +482,21 @@ export const transitionTransactionState = async (transactionId, toState, userId,
     }
 
     // Log state transition
+    // Prepare metadata info (will be handled gracefully if column doesn't exist)
+    const metadataInfo = {
+      from_state: fromState,
+      to_state: normalizedToState,
+      changed_by: userId,
+      ...metadata,
+    };
+    
     await addTransactionHistory({
       user_id: userId,
       transaction_id: transactionId,
       type: 'status_change',
       amount: 0,
       description: `State changed from ${fromState} to ${normalizedToState}`,
-      metadata: {
-        from_state: fromState,
-        to_state: normalizedToState,
-        changed_by: userId,
-        ...metadata,
-      },
-    });
+    }, metadataInfo);
 
     // Execute transition action (notifications, etc.)
     // updateResult.data might be an array or single object
@@ -442,6 +507,8 @@ export const transitionTransactionState = async (transactionId, toState, userId,
     if (updatedTransaction) {
       // Update the status in the transaction object for notification service
       updatedTransaction.status = normalizedToState;
+      // Use dynamic import to avoid circular dependency
+      const NotificationService = await import('./notificationService');
       await NotificationService.executeTransitionAction(updatedTransaction, normalizedToState);
     }
 
@@ -523,36 +590,88 @@ export const deleteTransaction = async (transactionId) => {
     }
     
     // Delete payment/transaction history entries (try both table names)
+    // This MUST happen before deleting the transaction to avoid foreign key constraint violations
     try {
       // Try transaction_history first (the actual table name)
-      const { error: transactionHistoryError } = await supabase
+      const { data: historyData, error: transactionHistoryError } = await supabase
         .from('transaction_history')
         .delete()
-        .eq('transaction_id', transactionId);
+        .eq('transaction_id', transactionId)
+        .select();
       
-      if (transactionHistoryError && !transactionHistoryError.message.includes('does not exist')) {
-        console.error('Error deleting transaction history:', transactionHistoryError);
-        // Try payment_history as fallback
-        try {
-          const { error: paymentError } = await supabase
-            .from('payment_history')
-            .delete()
-            .eq('transaction_id', transactionId);
-          
-          if (paymentError && !paymentError.message.includes('does not exist')) {
-            console.error('Error deleting payment history:', paymentError);
-            // Continue anyway
-          } else {
-            console.log('Payment history deleted successfully');
+      if (transactionHistoryError) {
+        if (transactionHistoryError.message.includes('does not exist') || transactionHistoryError.code === 'PGRST205') {
+          console.log('Transaction history table does not exist (skipping)');
+        } else if (transactionHistoryError.code === '42501') {
+          console.error('RLS policy error deleting transaction history:', transactionHistoryError);
+          throw new Error(`Permission denied: Cannot delete transaction history. RLS policy may be blocking deletion. Error: ${transactionHistoryError.message}`);
+        } else {
+          console.error('Error deleting transaction history:', transactionHistoryError);
+          // Try payment_history as fallback
+          try {
+            const { error: paymentError } = await supabase
+              .from('payment_history')
+              .delete()
+              .eq('transaction_id', transactionId);
+            
+            if (paymentError && !paymentError.message.includes('does not exist')) {
+              console.error('Error deleting payment history:', paymentError);
+              throw new Error(`Failed to delete transaction history: ${transactionHistoryError.message}`);
+            } else {
+              console.log('Payment history deleted successfully');
+            }
+          } catch (paymentErr) {
+            console.log('Payment history table might not exist:', paymentErr);
+            throw new Error(`Failed to delete transaction history: ${transactionHistoryError.message}`);
           }
-        } catch (paymentErr) {
-          console.log('Payment history table might not exist:', paymentErr);
         }
       } else {
-        console.log('Transaction history deleted successfully');
+        const deletedCount = historyData?.length || 0;
+        console.log(`Transaction history deleted successfully (${deletedCount} records)`);
+        if (deletedCount === 0) {
+          console.log('No transaction history records found to delete (this is OK)');
+        }
       }
     } catch (historyErr) {
-      console.log('History table might not exist:', historyErr);
+      console.error('Error deleting transaction history:', historyErr);
+      throw new Error(`Failed to delete transaction history: ${historyErr.message || historyErr}`);
+    }
+    
+    // Delete related notifications (if notifications table exists and has transaction_id in data JSONB)
+    try {
+      // Notifications store transaction_id in the data JSONB field
+      // We need to fetch notifications and filter by transaction_id in the data field
+      const { data: allNotifications, error: fetchError } = await supabase
+        .from('notifications')
+        .select('id, data');
+      
+      if (!fetchError && allNotifications) {
+        const notificationIdsToDelete = allNotifications
+          .filter(notif => notif.data?.transaction_id === transactionId)
+          .map(notif => notif.id);
+        
+        if (notificationIdsToDelete.length > 0) {
+          const { error: deleteError } = await supabase
+            .from('notifications')
+            .delete()
+            .in('id', notificationIdsToDelete);
+          
+          if (deleteError) {
+            console.error('Error deleting notifications:', deleteError);
+            // Continue anyway - notifications deletion is not critical
+          } else {
+            console.log(`Deleted ${notificationIdsToDelete.length} notification(s) related to transaction`);
+          }
+        } else {
+          console.log('No notifications found for this transaction');
+        }
+      } else if (fetchError && !fetchError.message.includes('does not exist')) {
+        console.error('Error fetching notifications:', fetchError);
+        // Continue anyway - notifications might not exist
+      }
+    } catch (notificationsErr) {
+      console.log('Notifications table might not exist or error occurred:', notificationsErr);
+      // Continue anyway - notifications deletion is not critical
     }
     
     // Finally, delete the transaction itself
@@ -685,24 +804,23 @@ export const getChatsForUser = async (userId) => {
         }
 
         // Get unread count (messages not read by current user)
-        // Note: This assumes a read_at column exists. If not, unread count will be 0
+        // Count messages from the other party that haven't been read
         let unreadCount = 0;
         try {
-          // Try to get unread count if read_at column exists
           const { count, error: countError } = await supabase
             .from('messages')
             .select('*', { count: 'exact', head: true })
             .eq('transaction_id', txn.id)
-            .eq('sender_id', otherPartyId)
+            .neq('sender_id', userId)
             .is('read_at', null);
           
-          if (!countError) {
-            unreadCount = count || 0;
+          if (!countError && count !== null) {
+            unreadCount = count;
+          } else if (countError) {
+            console.log('Unread count query error (may be expected if read_at column missing):', countError);
           }
-          // If read_at column doesn't exist, error will be caught and unreadCount stays 0
         } catch (error) {
-          // If read_at column doesn't exist or other error, set unread to 0
-          // This is expected if the column hasn't been added to the database yet
+          console.log('Error fetching unread count (may be expected if read_at column missing):', error);
         }
 
         const lastMessage = lastMessageData;
@@ -741,6 +859,7 @@ export const getChatsForUser = async (userId) => {
           otherPartyId: otherPartyId,
           lastMessage: lastMessage?.message || '',
           lastMessageTime: lastMessageTime,
+          lastMessageDate: lastMessage?.created_at || null, // Include date for real-time updates
           lastActivityTimestamp: lastActivityTimestamp, // For sorting
           unreadCount: unreadCount,
           status: txn.status || 'pending',
@@ -964,32 +1083,134 @@ export const sendMessage = async (messageData) => {
  */
 export const markMessagesAsRead = async (transactionId, userId) => {
   try {
-    const { error } = await supabase
+    console.log('Marking messages as read:', { transactionId, userId });
+    
+    // First, check which messages would be updated (for debugging)
+    const { data: messagesToUpdate, error: checkError } = await supabase
       .from('messages')
-      .update({ read_at: new Date().toISOString() })
+      .select('id, sender_id, message, read_at')
       .eq('transaction_id', transactionId)
       .neq('sender_id', userId)
       .is('read_at', null);
+    
+    if (checkError) {
+      console.error('Error checking messages to update:', checkError);
+    } else {
+      console.log('Messages that will be marked as read:', messagesToUpdate);
+      console.log('Count:', messagesToUpdate?.length || 0);
+      // Verify none of these messages are from the current user
+      const fromCurrentUser = messagesToUpdate?.filter(m => m.sender_id === userId);
+      if (fromCurrentUser && fromCurrentUser.length > 0) {
+        console.error('ERROR: Found messages from current user that would be marked as read!', fromCurrentUser);
+      }
+    }
+    
+    // Double-check: Get all messages in this transaction to verify which ones should be updated
+    const { data: allMessages, error: allMessagesError } = await supabase
+      .from('messages')
+      .select('id, sender_id, read_at')
+      .eq('transaction_id', transactionId);
+    
+    if (allMessagesError) {
+      console.error('Error fetching all messages:', allMessagesError);
+    } else {
+      console.log('All messages in transaction:', allMessages);
+      const senderMessages = allMessages?.filter(m => m.sender_id === userId) || [];
+      const receiverMessages = allMessages?.filter(m => m.sender_id !== userId && !m.read_at) || [];
+      console.log('Sender messages (should NOT be updated):', senderMessages);
+      console.log('Receiver messages (SHOULD be updated):', receiverMessages);
+    }
+    
+    // CRITICAL: Only update messages where sender_id is NOT the current user
+    // This ensures only messages sent TO the user are marked as read
+    // We use a more explicit filter to ensure sender messages are never updated
+    const readTimestamp = new Date().toISOString();
+    
+    // First, get the exact message IDs we should update (double-check)
+    const { data: messagesToUpdateCheck, error: checkError2 } = await supabase
+      .from('messages')
+      .select('id, sender_id')
+      .eq('transaction_id', transactionId)
+      .neq('sender_id', userId)
+      .is('read_at', null);
+    
+    if (checkError2) {
+      console.error('Error checking messages to update:', checkError2);
+    } else {
+      console.log('Messages that will be updated (final check):', messagesToUpdateCheck);
+      // Verify none have sender_id matching userId
+      const invalid = messagesToUpdateCheck?.filter(m => m.sender_id === userId);
+      if (invalid && invalid.length > 0) {
+        console.error('❌ CRITICAL: Found messages with sender_id matching userId in update query!', invalid);
+        return {
+          data: null,
+          error: 'Invalid query: Cannot update messages from current user',
+        };
+      }
+    }
+    
+    // Perform the update with explicit filters
+    const { data, error } = await supabase
+      .from('messages')
+      .update({ read_at: readTimestamp })
+      .eq('transaction_id', transactionId)
+      .neq('sender_id', userId)  // CRITICAL: Only update messages NOT sent by current user
+      .is('read_at', null)        // Only update unread messages
+      .select('id, sender_id, read_at');
 
-    // If error is about missing column, return success (graceful degradation)
     if (error) {
+      console.error('Error marking messages as read:', error);
+      console.error('Error details:', JSON.stringify(error, null, 2));
+      
       // Check if error is about missing column
       if (error.message && error.message.includes('read_at')) {
-        // Column doesn't exist, but that's okay - just return success
         return {
           data: { success: true, note: 'read_at column not available' },
           error: null,
         };
       }
-      throw error;
+      
+      // Check if error is about RLS policy
+      if (error.code === '42501' || error.message?.includes('row-level security') || error.message?.includes('policy')) {
+        console.error('RLS policy error - user may not have permission to update read_at');
+        return {
+          data: null,
+          error: 'Permission denied: Cannot update read_at. Please run the migration: add_update_read_at_policy.sql',
+        };
+      }
+      
+      return {
+        data: null,
+        error: error.message || 'Failed to mark messages as read',
+      };
     }
 
+    console.log('Successfully marked messages as read:', { count: data?.length || 0 });
+    if (data && data.length > 0) {
+      console.log('Updated messages:', data);
+      // Verify none were from the current user
+      const fromCurrentUser = data.filter(m => m.sender_id === userId);
+      if (fromCurrentUser.length > 0) {
+        console.error('❌ ERROR: Messages from current user were marked as read!', fromCurrentUser);
+        console.error('❌ This should not happen - sender_id should not match userId');
+        // If this happens, something is wrong - rollback by setting read_at back to null
+        const messageIds = fromCurrentUser.map(m => m.id);
+        await supabase
+          .from('messages')
+          .update({ read_at: null })
+          .in('id', messageIds);
+        console.error('❌ Rolled back incorrect read_at updates');
+      } else {
+        console.log('✅ All updated messages are from other users (correct behavior)');
+      }
+    }
     return {
-      data: { success: true },
+      data: { success: true, count: data?.length || 0 },
       error: null,
     };
   } catch (error) {
-    // If it's a column not found error, return success gracefully
+    console.error('Exception marking messages as read:', error);
+    
     if (error.message && error.message.includes('read_at')) {
       return {
         data: { success: true, note: 'read_at column not available' },
@@ -997,7 +1218,6 @@ export const markMessagesAsRead = async (transactionId, userId) => {
       };
     }
     
-    console.error('Mark messages as read error:', error);
     return {
       data: null,
       error: error.message || 'Failed to mark messages as read',
@@ -1706,11 +1926,18 @@ export const getTransactionHistory = async (userId, options = {}) => {
  * @param {object} historyData - History entry data
  * @returns {Promise<object>} - Created history entry
  */
-export const addTransactionHistory = async (historyData) => {
-  return insertIntoTable('transaction_history', {
+export const addTransactionHistory = async (historyData, metadata = null) => {
+  const insertData = {
     ...historyData,
     created_at: new Date().toISOString(),
-  });
+  };
+  
+  // Remove metadata from insertData since the column doesn't exist in transaction_history table
+  // The metadata information is already captured in the description field
+  const { metadata: _, ...dataWithoutMetadata } = insertData;
+  
+  // Always insert without metadata since the column doesn't exist
+  return insertIntoTable('transaction_history', dataWithoutMetadata);
 };
 
 // ==================== NOTIFICATIONS ====================
@@ -1751,10 +1978,56 @@ export const markNotificationAsRead = async (notificationId) => {
  * @returns {Promise<object>} - Created notification
  */
 export const createNotification = async (notificationData) => {
-  return insertIntoTable('notifications', {
-    ...notificationData,
-    read: false,
-    created_at: new Date().toISOString(),
-  });
+  try {
+    const { data: { user: currentUser } } = await supabase.auth.getUser();
+    const currentUserId = currentUser?.id;
+    
+    const notificationUserId = notificationData.user_id;
+    const transactionId = notificationData.data?.transaction_id;
+    
+    if (currentUserId && notificationUserId !== currentUserId && transactionId) {
+      try {
+        const { data, error } = await supabase.rpc('insert_notification_for_transaction_participant', {
+          p_user_id: notificationUserId,
+          p_title: notificationData.title,
+          p_message: notificationData.message,
+          p_type: notificationData.type,
+          p_data: notificationData.data || {},
+          p_transaction_id: transactionId,
+          p_current_user_id: currentUserId,
+        });
+        
+        if (error) {
+          console.warn('RPC function failed, falling back to regular insert:', error);
+          throw error;
+        }
+        
+        // The RPC function returns the notification as JSONB
+        if (data) {
+          console.log('Successfully inserted notification via RPC:', data);
+          return {
+            data: data,
+            error: null,
+          };
+        } else {
+          throw new Error('RPC function returned no data');
+        }
+      } catch (rpcError) {
+        console.warn('RPC insert failed, trying regular insert:', rpcError);
+      }
+    }
+    
+    return insertIntoTable('notifications', {
+      ...notificationData,
+      read: false,
+      created_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error in createNotification:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to create notification',
+    };
+  }
 };
 
