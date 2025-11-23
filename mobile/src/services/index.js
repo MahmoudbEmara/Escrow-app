@@ -6,14 +6,17 @@
 // Authentication Service
 export * as AuthService from './authService';
 
-// Real-time Service
-export * as RealtimeService from './realtimeService';
-
-// Storage Service
-export * as StorageService from './storageService';
-
 // Database Service
 export * as DatabaseService from './databaseService';
+
+// Transaction Service (with state machine)
+export * as TransactionService from './transactionService';
+
+// Notification Service
+export * as NotificationService from './notificationService';
+
+// State Machine Constants
+export * from '../constants/transactionStates';
 
 // Legacy API service (can be removed if not needed)
 export { default as api } from './api';

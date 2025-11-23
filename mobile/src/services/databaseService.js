@@ -1,4 +1,6 @@
 import { supabase } from '../lib/supabase';
+import { isValidTransition } from '../constants/transactionStates';
+import * as NotificationService from './notificationService';
 
 /**
  * Database Service
@@ -278,7 +280,7 @@ export const getTransaction = async (transactionId) => {
 };
 
 /**
- * Create a new transaction
+ * Create a new transaction (starts in draft state)
  * @param {object} transactionData - Transaction data
  * @returns {Promise<object>} - Created transaction
  */
@@ -286,22 +288,187 @@ export const createTransaction = async (transactionData) => {
   return insertIntoTable('transactions', {
     ...transactionData,
     created_at: new Date().toISOString(),
-    status: transactionData.status || 'pending',
+    status: transactionData.status || 'draft',
   });
 };
 
 /**
- * Update transaction status
+ * Transition transaction to a new state (with validation and actions)
  * @param {string} transactionId - Transaction ID
- * @param {string} status - New status
- * @param {object} additionalUpdates - Additional fields to update
+ * @param {string} toState - Target state
+ * @param {string} userId - User ID performing the transition
+ * @param {object} metadata - Additional metadata for the transition
+ * @returns {Promise<object>} - Transition result
+ */
+export const transitionTransactionState = async (transactionId, toState, userId, metadata = {}) => {
+  try {
+    // Normalize status function
+    const normalizeStatus = (status) => {
+      if (!status) return 'draft';
+      const s = (status || '').toLowerCase().trim();
+      const statusMap = {
+        'pending': 'pending_approval',
+        'pending_approval': 'pending_approval',
+        'accepted': 'accepted',
+        'funded': 'funded',
+        'in progress': 'in_progress',
+        'in_progress': 'in_progress',
+        'delivered': 'delivered',
+        'completed': 'completed',
+        'cancelled': 'cancelled',
+        'canceled': 'cancelled',
+        'disputed': 'disputed',
+        'in dispute': 'disputed',
+        'draft': 'draft',
+      };
+      return statusMap[s] || status;
+    };
+
+    // Get current transaction
+    const transactionResult = await getTransaction(transactionId);
+    if (transactionResult.error || !transactionResult.data) {
+      return {
+        success: false,
+        error: transactionResult.error || 'Transaction not found',
+      };
+    }
+
+    const transaction = transactionResult.data;
+    const rawFromState = transaction.status;
+    const fromState = normalizeStatus(rawFromState);
+    const normalizedToState = normalizeStatus(toState);
+
+    // Validate transition
+    if (!isValidTransition(fromState, normalizedToState)) {
+      return {
+        success: false,
+        error: `Invalid transition from ${fromState} to ${normalizedToState}`,
+      };
+    }
+
+    // Validate user permissions
+    const isBuyer = transaction.buyer_id === userId;
+    const isSeller = transaction.seller_id === userId;
+    const isAdmin = metadata.isAdmin || false;
+
+    // Permission checks based on state (use normalized state)
+    if (normalizedToState === 'pending_approval' && !isBuyer) {
+      return { success: false, error: 'Only buyer can submit for approval' };
+    }
+    if (normalizedToState === 'accepted' && !isSeller) {
+      return { success: false, error: 'Only seller can accept transaction' };
+    }
+    if (normalizedToState === 'funded' && !isBuyer) {
+      return { success: false, error: 'Only buyer can fund transaction' };
+    }
+    if (normalizedToState === 'in_progress' && !isSeller) {
+      return { success: false, error: 'Only seller can start work' };
+    }
+    if (normalizedToState === 'delivered' && !isSeller) {
+      return { success: false, error: 'Only seller can mark as delivered' };
+    }
+    if (normalizedToState === 'completed' && !isBuyer && !isAdmin) {
+      return { success: false, error: 'Only buyer can complete transaction' };
+    }
+    if (normalizedToState === 'disputed' && !isBuyer && !isSeller) {
+      return { success: false, error: 'Only buyer or seller can dispute' };
+    }
+    if (normalizedToState === 'cancelled' && !isBuyer && !isSeller && !isAdmin) {
+      return { success: false, error: 'Only buyer, seller, or admin can cancel' };
+    }
+    if ((normalizedToState === 'completed' || normalizedToState === 'cancelled') && fromState === 'disputed' && !isAdmin) {
+      return { success: false, error: 'Only admin can resolve disputes' };
+    }
+
+    // Update transaction state (use normalized state - must match database constraint)
+    // Database constraint only allows: draft, pending_approval, accepted, funded, in_progress, delivered, completed, cancelled, disputed
+    // Ensure we're using the exact values from the constraint
+    let dbStatus = normalizedToState;
+    
+    // Map any variations to the exact constraint values
+    if (dbStatus === 'pending') {
+      dbStatus = 'pending_approval';
+    } else if (dbStatus === 'canceled') {
+      dbStatus = 'cancelled';
+    } else if (dbStatus === 'in progress') {
+      dbStatus = 'in_progress';
+    } else if (dbStatus === 'in dispute') {
+      dbStatus = 'disputed';
+    }
+    
+    // Validate the status is one of the allowed values
+    const allowedStatuses = ['draft', 'pending_approval', 'accepted', 'funded', 'in_progress', 'delivered', 'completed', 'cancelled', 'disputed'];
+    if (!allowedStatuses.includes(dbStatus)) {
+      return {
+        success: false,
+        error: `Invalid status value: ${dbStatus}. Must be one of: ${allowedStatuses.join(', ')}`,
+      };
+    }
+    
+    const updateResult = await updateTable('transactions', transactionId, {
+      status: dbStatus,
+      updated_at: new Date().toISOString(),
+      ...(metadata.stateMetadata || {}),
+    });
+
+    if (updateResult.error) {
+      return {
+        success: false,
+        error: updateResult.error,
+      };
+    }
+
+    // Log state transition
+    await addTransactionHistory({
+      user_id: userId,
+      transaction_id: transactionId,
+      type: 'status_change',
+      amount: 0,
+      description: `State changed from ${fromState} to ${normalizedToState}`,
+      metadata: {
+        from_state: fromState,
+        to_state: normalizedToState,
+        changed_by: userId,
+        ...metadata,
+      },
+    });
+
+    // Execute transition action (notifications, etc.)
+    // updateResult.data might be an array or single object
+    const updatedTransaction = Array.isArray(updateResult.data) 
+      ? updateResult.data[0] 
+      : updateResult.data;
+    
+    if (updatedTransaction) {
+      // Update the status in the transaction object for notification service
+      updatedTransaction.status = normalizedToState;
+      await NotificationService.executeTransitionAction(updatedTransaction, normalizedToState);
+    }
+
+    return {
+      success: true,
+      data: updatedTransaction,
+      error: null,
+    };
+  } catch (error) {
+    console.error('Transition transaction state error:', error);
+    return {
+      success: false,
+      error: error.message || 'Failed to transition transaction state',
+    };
+  }
+};
+
+/**
+ * Update transaction (non-state changes)
+ * @param {string} transactionId - Transaction ID
+ * @param {object} updates - Updates to apply
  * @returns {Promise<object>} - Updated transaction
  */
-export const updateTransactionStatus = async (transactionId, status, additionalUpdates = {}) => {
+export const updateTransaction = async (transactionId, updates) => {
   return updateTable('transactions', transactionId, {
-    status,
+    ...updates,
     updated_at: new Date().toISOString(),
-    ...additionalUpdates,
   });
 };
 

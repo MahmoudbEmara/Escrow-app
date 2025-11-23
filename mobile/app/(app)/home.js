@@ -8,6 +8,7 @@ import { LanguageContext } from '../../src/context/LanguageContext';
 import * as AuthSession from 'expo-auth-session';
 import * as DatabaseService from '../../src/services/databaseService';
 import { supabase } from '../../src/lib/supabase';
+import { getStateDisplayName, getStateColors } from '../../src/constants/transactionStates';
 
 export default function HomeScreen() {
   const { state } = useContext(AuthContext);
@@ -553,7 +554,31 @@ export default function HomeScreen() {
 
         <View style={styles.transactionsList}>
           {filteredTransactions.map((transaction) => {
-            const statusColors = getStatusColor(transaction.status);
+            // Normalize status for display
+            const normalizeStatus = (status) => {
+              if (!status) return 'draft';
+              const s = (status || '').toLowerCase().trim();
+              const statusMap = {
+                'pending': 'pending_approval',
+                'pending_approval': 'pending_approval',
+                'accepted': 'accepted',
+                'funded': 'funded',
+                'in progress': 'in_progress',
+                'in_progress': 'in_progress',
+                'delivered': 'delivered',
+                'completed': 'completed',
+                'cancelled': 'cancelled',
+                'canceled': 'cancelled',
+                'disputed': 'disputed',
+                'in dispute': 'disputed',
+                'draft': 'draft',
+              };
+              return statusMap[s] || status;
+            };
+            
+            const normalizedStatus = normalizeStatus(transaction.status);
+            const statusColors = getStateColors(normalizedStatus);
+            const statusDisplayName = getStateDisplayName(normalizedStatus);
             const roleColors = getRoleColor(transaction.role);
             const isOutgoing = transaction.role === 'Buyer';
             
@@ -566,7 +591,7 @@ export default function HomeScreen() {
                 <View style={[styles.transactionHeader, isRTL && styles.transactionHeaderRTL]}>
                   <View style={[styles.statusTag, { backgroundColor: statusColors.bg }]}>
                     <Text style={[styles.statusTagText, { color: statusColors.text }]}>
-                      {transaction.status}
+                      {statusDisplayName}
                     </Text>
                   </View>
                   <View style={[styles.roleTag, { backgroundColor: roleColors.bg }]}>
