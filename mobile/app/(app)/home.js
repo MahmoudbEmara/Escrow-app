@@ -27,6 +27,8 @@ export default function HomeScreen() {
   const [incoming, setIncoming] = useState(0);
   const [outgoing, setOutgoing] = useState(0);
   
+  const fetchDataRef = useRef(null);
+  
   // --- Generate redirect URI for Expo Go ---
   const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
   console.log('Redirect URI for Expo Go:', redirectUri);
@@ -213,6 +215,7 @@ export default function HomeScreen() {
   }, [fetchData]);
 
   useEffect(() => {
+    fetchDataRef.current = fetchData;
     fetchData();
   }, [fetchData]);
 
@@ -244,9 +247,34 @@ export default function HomeScreen() {
           if (newTransaction.buyer_id === state.user.id || newTransaction.seller_id === state.user.id) {
             console.log('Transaction involves current user, refreshing data...');
             // Refresh data when new transaction is created
-            fetchData();
+            if (fetchDataRef.current) {
+              fetchDataRef.current();
+            }
           } else {
             console.log('Transaction does not involve current user, ignoring...');
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'transactions',
+        },
+        (payload) => {
+          console.log('Transaction updated:', payload.new);
+          const updatedTransaction = payload.new;
+          
+          // Check if this transaction involves the current user
+          if (updatedTransaction.buyer_id === state.user.id || updatedTransaction.seller_id === state.user.id) {
+            console.log('Updated transaction involves current user, refreshing data...');
+            // Refresh data when transaction is updated (status change, etc.)
+            if (fetchDataRef.current) {
+              fetchDataRef.current();
+            }
+          } else {
+            console.log('Updated transaction does not involve current user, ignoring...');
           }
         }
       )
@@ -306,7 +334,7 @@ export default function HomeScreen() {
       console.log('Cleaning up realtime subscription...');
       supabase.removeChannel(channel);
     };
-  }, [state.user?.id, isTestUser, fetchData]);
+  }, [state.user?.id, isTestUser]);
 
   // Refresh data when screen comes into focus
   useFocusEffect(

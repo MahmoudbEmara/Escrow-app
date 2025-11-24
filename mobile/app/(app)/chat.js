@@ -234,7 +234,7 @@ export default function ChatScreen() {
       <StatusBar barStyle="dark-content" />
       {/* Header */}
       <View style={[styles.header, isRTL && styles.headerRTL]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={() => router.push('/(app)/messages')} style={styles.backButton}>
           <Text style={[styles.backIcon, isRTL && styles.backIconRTL]}>←</Text>
         </TouchableOpacity>
         <View style={styles.headerInfo}>

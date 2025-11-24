@@ -47,14 +47,14 @@ export default function SettingsScreen() {
     >
       <View style={[styles.settingItemLeft, isRTL && styles.settingItemLeftRTL]}>
         <View style={styles.settingIcon}>
-          {Icon && <Icon size={20} color="#4b5563" />} {/* w-5 h-5 text-gray-600 from Figma */}
+          {Icon ? <Icon size={20} color="#4b5563" /> : null} {/* w-5 h-5 text-gray-600 from Figma */}
         </View>
         <View style={styles.settingTextContainer}>
           <Text style={[styles.settingTitle, isRTL && styles.textRTL]}>{title}</Text>
-          {subtitle && <Text style={[styles.settingSubtitle, isRTL && styles.textRTL]}>{subtitle}</Text>}
+          {subtitle ? <Text style={[styles.settingSubtitle, isRTL && styles.textRTL]}>{subtitle}</Text> : null}
         </View>
       </View>
-      {rightComponent || (showChevron && <ChevronRight size={20} color="#9ca3af" />)} {/* w-5 h-5 text-gray-400 from Figma */}
+      {rightComponent ? rightComponent : (showChevron ? <ChevronRight size={20} color="#9ca3af" /> : null)} {/* w-5 h-5 text-gray-400 from Figma */}
     </TouchableOpacity>
   );
 

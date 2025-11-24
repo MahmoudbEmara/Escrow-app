@@ -285,11 +285,58 @@ export const getTransaction = async (transactionId) => {
  * @returns {Promise<object>} - Created transaction
  */
 export const createTransaction = async (transactionData) => {
-  return insertIntoTable('transactions', {
+  const result = await insertIntoTable('transactions', {
     ...transactionData,
     created_at: new Date().toISOString(),
     status: transactionData.status || 'draft',
   });
+  
+  // Log transaction initiation in transaction_history if initiated_by is set
+  if (result.data && transactionData.initiated_by) {
+    try {
+      console.log('Logging transaction initiation:', {
+        user_id: transactionData.initiated_by,
+        transaction_id: result.data.id,
+      });
+      
+      const historyData = {
+        user_id: transactionData.initiated_by,
+        transaction_id: result.data.id,
+        type: 'status_change',
+        amount: 0,
+        description: `Transaction initiated`,
+      };
+      
+      const insertData = {
+        ...historyData,
+        created_at: new Date().toISOString(),
+      };
+      
+      // Remove metadata if it exists (transaction_history table doesn't have metadata column)
+      const { metadata: _, ...dataWithoutMetadata } = insertData;
+      
+      const historyResult = await insertIntoTable('transaction_history', dataWithoutMetadata);
+      
+      if (historyResult.error) {
+        console.error('Failed to log transaction initiation in history:', historyResult.error);
+      } else if (historyResult.data) {
+        console.log('Transaction initiation logged successfully:', historyResult.data);
+      } else {
+        console.warn('Transaction initiation logging returned no data:', historyResult);
+      }
+    } catch (historyError) {
+      console.error('Exception while logging transaction initiation in history:', historyError);
+    }
+  } else {
+    if (!result.data) {
+      console.warn('Cannot log initiation: transaction creation failed or returned no data');
+    }
+    if (!transactionData.initiated_by) {
+      console.warn('Cannot log initiation: initiated_by not set in transactionData', transactionData);
+    }
+  }
+  
+  return result;
 };
 
 /**
@@ -351,12 +398,39 @@ export const transitionTransactionState = async (transactionId, toState, userId,
     const isSeller = transaction.seller_id === userId;
     const isAdmin = metadata.isAdmin || false;
 
+    // Check if current user is the initiator
+    const initiatedBy = transaction.initiated_by;
+    const isInitiator = initiatedBy === userId;
+
     // Permission checks based on state (use normalized state)
     if (normalizedToState === 'pending_approval' && !isBuyer) {
       return { success: false, error: 'Only buyer can submit for approval' };
     }
-    if (normalizedToState === 'accepted' && !isSeller) {
-      return { success: false, error: 'Only seller can accept transaction' };
+    // The OTHER party (not the initiator) should accept/reject
+    if (normalizedToState === 'accepted') {
+      if (!isBuyer && !isSeller) {
+        return { success: false, error: 'Only transaction participants can accept' };
+      }
+      
+      // If initiated_by is set, only the OTHER party can accept
+      if (initiatedBy) {
+        console.log('Accept permission check:', {
+          transactionId: transaction.id,
+          userId,
+          initiatedBy,
+          isInitiator,
+          isBuyer,
+          isSeller,
+        });
+        
+        if (isInitiator) {
+          console.log('BLOCKED: User is the initiator, cannot accept');
+          return { success: false, error: 'Only the other party can accept this transaction' };
+        }
+        console.log('ALLOWED: User is not the initiator, can accept');
+      } else {
+        console.log('No initiated_by set, allowing accept (backward compatibility)');
+      }
     }
     if (normalizedToState === 'funded' && !isBuyer) {
       return { success: false, error: 'Only buyer can fund transaction' };
@@ -442,7 +516,7 @@ export const transitionTransactionState = async (transactionId, toState, userId,
     if (updatedTransaction) {
       // Update the status in the transaction object for notification service
       updatedTransaction.status = normalizedToState;
-      await NotificationService.executeTransitionAction(updatedTransaction, normalizedToState);
+      await NotificationService.executeTransitionAction(updatedTransaction, normalizedToState, userId);
     }
 
     return {
@@ -480,6 +554,59 @@ export const updateTransaction = async (transactionId, updates) => {
 export const deleteTransaction = async (transactionId) => {
   try {
     console.log('Deleting transaction:', transactionId);
+    
+    // First, get the transaction to find buyer_id and seller_id for notification deletion
+    const { data: transaction, error: fetchError } = await supabase
+      .from('transactions')
+      .select('buyer_id, seller_id')
+      .eq('id', transactionId)
+      .single();
+    
+    const userIds = [];
+    if (transaction) {
+      if (transaction.buyer_id) userIds.push(transaction.buyer_id);
+      if (transaction.seller_id) userIds.push(transaction.seller_id);
+    }
+    
+    // Delete notifications related to this transaction
+    if (userIds.length > 0) {
+      try {
+        // Fetch notifications for users involved in the transaction
+        const { data: notifications, error: fetchError } = await supabase
+          .from('notifications')
+          .select('id, data')
+          .in('user_id', userIds);
+        
+        if (fetchError) {
+          console.warn('Could not fetch notifications for deletion:', fetchError);
+        } else if (notifications && notifications.length > 0) {
+          // Filter notifications that reference this transaction
+          const matchingNotifications = notifications.filter(notif => {
+            const data = notif.data;
+            if (!data || typeof data !== 'object') return false;
+            return data.transaction_id === transactionId;
+          });
+          
+          if (matchingNotifications.length > 0) {
+            const notificationIds = matchingNotifications.map(n => n.id);
+            const { error: deleteError } = await supabase
+              .from('notifications')
+              .delete()
+              .in('id', notificationIds);
+            
+            if (deleteError) {
+              console.error('Error deleting notifications:', deleteError);
+            } else {
+              console.log(`Deleted ${matchingNotifications.length} notification(s) successfully`);
+            }
+          } else {
+            console.log('No notifications found for this transaction');
+          }
+        }
+      } catch (notificationsErr) {
+        console.warn('Error deleting notifications, continuing with transaction deletion:', notificationsErr);
+      }
+    }
     
     // Delete related messages first (if messages table exists and has transaction_id)
     try {
@@ -522,37 +649,122 @@ export const deleteTransaction = async (transactionId) => {
       console.log('Transaction terms table might not exist (this is OK):', termsErr.message || termsErr);
     }
     
-    // Delete payment/transaction history entries (try both table names)
+    // Delete transaction history entries - MUST succeed before deleting transaction
     try {
-      // Try transaction_history first (the actual table name)
-      const { error: transactionHistoryError } = await supabase
-        .from('transaction_history')
-        .delete()
-        .eq('transaction_id', transactionId);
+      // Get current user ID for RPC function
+      const { data: { user } } = await supabase.auth.getUser();
+      const currentUserId = user?.id;
       
-      if (transactionHistoryError && !transactionHistoryError.message.includes('does not exist')) {
-        console.error('Error deleting transaction history:', transactionHistoryError);
-        // Try payment_history as fallback
-        try {
-          const { error: paymentError } = await supabase
-            .from('payment_history')
+      if (!currentUserId) {
+        throw new Error('User not authenticated');
+      }
+      
+      // Try using RPC function first (bypasses RLS)
+      try {
+        console.log('Attempting to delete transaction history via RPC function...');
+        const { data: deletedCount, error: rpcError } = await supabase.rpc(
+          'delete_transaction_history_for_transaction',
+          {
+            p_transaction_id: transactionId,
+            p_user_id: currentUserId,
+          }
+        );
+        
+        if (rpcError) {
+          console.warn('RPC function failed or does not exist, trying direct delete:', rpcError);
+          throw rpcError;
+        }
+        
+        console.log(`RPC function deleted ${deletedCount || 0} transaction history record(s)`);
+        
+        // Verify deletion succeeded
+        const { data: remainingRecords, error: verifyError } = await supabase
+          .from('transaction_history')
+          .select('id')
+          .eq('transaction_id', transactionId);
+        
+        if (verifyError && verifyError.code !== '42501') {
+          console.warn('Could not verify deletion:', verifyError);
+        } else if (remainingRecords && remainingRecords.length > 0) {
+          console.warn(`${remainingRecords.length} records still exist, but RPC should have deleted them`);
+        } else {
+          console.log('Transaction history deletion verified via RPC');
+        }
+      } catch (rpcErr) {
+        // Fallback to direct delete if RPC doesn't exist
+        console.log('Falling back to direct delete method...');
+        console.log('RPC error:', rpcErr);
+        
+        // First, check if there are any records to delete
+        const { data: historyRecords, error: checkError } = await supabase
+          .from('transaction_history')
+          .select('id, user_id, transaction_id')
+          .eq('transaction_id', transactionId);
+        
+        console.log('History records check result:', { historyRecords, checkError });
+        
+        if (checkError) {
+          console.error('Error checking transaction history:', checkError);
+          if (checkError.code === '42501') {
+            throw new Error(`Permission denied: Cannot access transaction history. Please run the migrations 'create_delete_transaction_history_function.sql' and 'add_delete_policy_for_transaction_history.sql' in Supabase SQL Editor.`);
+          }
+          throw new Error(`Failed to check transaction history: ${checkError.message}`);
+        }
+        
+        if (historyRecords && historyRecords.length > 0) {
+          console.log(`Found ${historyRecords.length} transaction history record(s) to delete:`, historyRecords.map(r => r.id));
+          
+          // Delete all records in one query
+          const { data: deletedData, error: deleteError } = await supabase
+            .from('transaction_history')
             .delete()
+            .eq('transaction_id', transactionId)
+            .select();
+          
+          console.log('Delete transaction_history result:', { deletedData, deleteError, deletedCount: deletedData?.length });
+          
+          if (deleteError) {
+            console.error('Error deleting transaction history:', deleteError);
+            
+            if (deleteError.code === '42501') {
+              throw new Error(`Permission denied: Cannot delete transaction history. Please run the migrations 'create_delete_transaction_history_function.sql' and 'add_delete_policy_for_transaction_history.sql' in Supabase SQL Editor.`);
+            }
+            
+            throw new Error(`Failed to delete transaction history: ${deleteError.message}`);
+          }
+          
+          // CRITICAL: Verify deletion succeeded before proceeding
+          const { data: remainingRecords, error: verifyError } = await supabase
+            .from('transaction_history')
+            .select('id')
             .eq('transaction_id', transactionId);
           
-          if (paymentError && !paymentError.message.includes('does not exist')) {
-            console.error('Error deleting payment history:', paymentError);
-            // Continue anyway
-          } else {
-            console.log('Payment history deleted successfully');
+          console.log('Verification check after deletion:', { remainingRecords, verifyError, remainingCount: remainingRecords?.length });
+          
+          if (verifyError) {
+            if (verifyError.code === '42501') {
+              throw new Error(`Cannot verify transaction history deletion due to RLS. Please run the migrations 'create_delete_transaction_history_function.sql' and 'add_delete_policy_for_transaction_history.sql' in Supabase SQL Editor.`);
+            }
+            console.warn('Could not verify deletion:', verifyError);
+            // If we can't verify, we can't safely proceed
+            throw new Error(`Cannot verify transaction history deletion: ${verifyError.message}`);
           }
-        } catch (paymentErr) {
-          console.log('Payment history table might not exist:', paymentErr);
+          
+          if (remainingRecords && remainingRecords.length > 0) {
+            console.error(`CRITICAL: ${remainingRecords.length} transaction history record(s) still exist after deletion attempt`);
+            console.error('Remaining record IDs:', remainingRecords.map(r => r.id));
+            throw new Error(`Failed to delete all transaction history records. ${remainingRecords.length} record(s) still exist. This will prevent transaction deletion. Please run the migrations 'create_delete_transaction_history_function.sql' and 'add_delete_policy_for_transaction_history.sql'.`);
+          }
+          
+          console.log(`Successfully deleted ${historyRecords.length} transaction history record(s) - verified (no remaining records)`);
+        } else {
+          console.log('No transaction history records found to delete');
         }
-      } else {
-        console.log('Transaction history deleted successfully');
       }
     } catch (historyErr) {
-      console.log('History table might not exist:', historyErr);
+      console.error('CRITICAL: Error deleting transaction history:', historyErr);
+      console.error('Transaction deletion cannot proceed without deleting history first');
+      throw historyErr;
     }
     
     // Finally, delete the transaction itself
@@ -1707,10 +1919,14 @@ export const getTransactionHistory = async (userId, options = {}) => {
  * @returns {Promise<object>} - Created history entry
  */
 export const addTransactionHistory = async (historyData) => {
-  return insertIntoTable('transaction_history', {
+  const insertData = {
     ...historyData,
     created_at: new Date().toISOString(),
-  });
+  };
+  
+  const { metadata: _, ...dataWithoutMetadata } = insertData;
+  
+  return insertIntoTable('transaction_history', dataWithoutMetadata);
 };
 
 // ==================== NOTIFICATIONS ====================
@@ -1751,10 +1967,75 @@ export const markNotificationAsRead = async (notificationId) => {
  * @returns {Promise<object>} - Created notification
  */
 export const createNotification = async (notificationData) => {
-  return insertIntoTable('notifications', {
-    ...notificationData,
-    read: false,
-    created_at: new Date().toISOString(),
-  });
+  try {
+    const currentUserId = (await supabase.auth.getUser()).data?.user?.id;
+    
+    if (!currentUserId) {
+      console.error('Cannot create notification: User not authenticated');
+      return {
+        data: null,
+        error: 'User not authenticated',
+      };
+    }
+
+    if (!notificationData.data?.transaction_id) {
+      console.error('Cannot create notification: Missing transaction_id');
+      return {
+        data: null,
+        error: 'Missing transaction_id in notification data',
+      };
+    }
+
+    console.log('Attempting RPC insert for notification:', {
+      user_id: notificationData.user_id,
+      transaction_id: notificationData.data.transaction_id,
+      current_user_id: currentUserId,
+    });
+
+    const result = await supabase.rpc('insert_notification_for_transaction_participant', {
+      p_user_id: notificationData.user_id,
+      p_title: notificationData.title,
+      p_message: notificationData.message,
+      p_type: notificationData.type,
+      p_data: notificationData.data || {},
+      p_transaction_id: notificationData.data.transaction_id,
+      p_current_user_id: currentUserId,
+    });
+
+    if (result.error) {
+      console.error('RPC insert failed:', result.error);
+      console.error('RPC error details:', {
+        code: result.error.code,
+        message: result.error.message,
+        details: result.error.details,
+        hint: result.error.hint,
+      });
+      
+      return {
+        data: null,
+        error: result.error.message || 'Failed to create notification via RPC',
+      };
+    }
+
+    if (result.data) {
+      console.log('Successfully created notification via RPC');
+      return {
+        data: result.data,
+        error: null,
+      };
+    }
+
+    console.warn('RPC returned no data and no error');
+    return {
+      data: null,
+      error: 'RPC function returned no data',
+    };
+  } catch (error) {
+    console.error('Error creating notification:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to create notification',
+    };
+  }
 };
 

@@ -1,10 +1,11 @@
-import React, { useContext, useState, useEffect } from 'react';
+import React, { useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as DatabaseService from '../../src/services/databaseService';
+import { supabase } from '../../src/lib/supabase';
 
 export default function WalletScreen() {
   const { state } = useContext(AuthContext);
@@ -14,6 +15,8 @@ export default function WalletScreen() {
   const [availableBalance, setAvailableBalance] = useState(0);
   const [paymentHistory, setPaymentHistory] = useState([]);
   const [loading, setLoading] = useState(true);
+  
+  const fetchDataRef = useRef(null);
 
   // Check if user is test user
   const isTestUser = state.user?.email?.toLowerCase() === 'test@test.com' || 
@@ -53,53 +56,117 @@ export default function WalletScreen() {
   ];
 
   // Fetch wallet data
+  const fetchData = useCallback(async () => {
+    if (!state.user?.id) {
+      setLoading(false);
+      return;
+    }
+
+    // Use test data for test user
+    if (isTestUser) {
+      setAvailableBalance(testAvailableBalance);
+      setPaymentHistory(testPaymentHistory);
+      setLoading(false);
+      return;
+    }
+
+    try {
+      // Fetch wallet
+      const walletResult = await DatabaseService.getUserWallet(state.user.id);
+      if (walletResult.data) {
+        setAvailableBalance(parseFloat(walletResult.data.available_balance || walletResult.data.balance || 0));
+      }
+
+      // Fetch payment history
+      const historyResult = await DatabaseService.getTransactionHistory(state.user.id);
+      if (historyResult.data) {
+        const formattedHistory = historyResult.data.map(item => ({
+          id: item.id,
+          name: item.description || item.name || 'Transaction',
+          date: new Date(item.created_at || item.date).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            year: 'numeric' 
+          }),
+          amount: parseFloat(item.amount || 0),
+          type: item.type || (item.amount >= 0 ? 'credit' : 'debit'),
+        }));
+        setPaymentHistory(formattedHistory);
+      }
+
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching wallet data:', error);
+      setLoading(false);
+    }
+  }, [state.user?.id, isTestUser]);
+
   useEffect(() => {
-    const fetchData = async () => {
-      if (!state.user?.id) {
-        setLoading(false);
-        return;
-      }
-
-      // Use test data for test user
-      if (isTestUser) {
-        setAvailableBalance(testAvailableBalance);
-        setPaymentHistory(testPaymentHistory);
-        setLoading(false);
-        return;
-      }
-
-      try {
-        // Fetch wallet
-        const walletResult = await DatabaseService.getUserWallet(state.user.id);
-        if (walletResult.data) {
-          setAvailableBalance(parseFloat(walletResult.data.available_balance || walletResult.data.balance || 0));
-        }
-
-        // Fetch payment history
-        const historyResult = await DatabaseService.getTransactionHistory(state.user.id);
-        if (historyResult.data) {
-          const formattedHistory = historyResult.data.map(item => ({
-            id: item.id,
-            name: item.description || item.name || 'Transaction',
-            date: new Date(item.created_at || item.date).toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric', 
-              year: 'numeric' 
-            }),
-            amount: parseFloat(item.amount || 0),
-            type: item.type || (item.amount >= 0 ? 'credit' : 'debit'),
-          }));
-          setPaymentHistory(formattedHistory);
-        }
-
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching wallet data:', error);
-        setLoading(false);
-      }
-    };
-
+    fetchDataRef.current = fetchData;
     fetchData();
+  }, [fetchData]);
+
+  // Set up realtime subscriptions for wallet updates
+  useEffect(() => {
+    if (!state.user?.id || isTestUser) {
+      return;
+    }
+
+    console.log('Setting up realtime subscription for wallet...');
+    console.log('User ID:', state.user.id);
+
+    const channel = supabase
+      .channel(`wallet-changes-${state.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'wallets',
+          filter: `user_id=eq.${state.user.id}`,
+        },
+        (payload) => {
+          console.log('Wallet updated:', payload.new);
+          const updatedWallet = payload.new;
+          if (updatedWallet.user_id === state.user.id) {
+            console.log('Wallet balance updated, refreshing data...');
+            setAvailableBalance(parseFloat(updatedWallet.available_balance || updatedWallet.balance || 0));
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'transaction_history',
+          filter: `user_id=eq.${state.user.id}`,
+        },
+        (payload) => {
+          console.log('New transaction history entry:', payload.new);
+          const newHistory = payload.new;
+          if (newHistory.user_id === state.user.id) {
+            console.log('New transaction history entry added, refreshing data...');
+            if (fetchDataRef.current) {
+              fetchDataRef.current();
+            }
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Wallet realtime subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to wallet changes');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('Wallet realtime subscription error');
+        }
+      });
+
+    // Cleanup subscription on unmount
+    return () => {
+      console.log('Cleaning up wallet realtime subscription...');
+      supabase.removeChannel(channel);
+    };
   }, [state.user?.id, isTestUser]);
 
   if (loading) {

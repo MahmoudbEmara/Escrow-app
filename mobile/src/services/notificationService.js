@@ -37,12 +37,20 @@ export const notifyReceiver = async (transaction) => {
 /**
  * Notify buyer to pay for the transaction
  */
-export const notifyBuyerToPay = async (transaction) => {
+export const notifyBuyerToPay = async (transaction, acceptedByUserId) => {
   try {
     const buyerId = transaction.buyer_id;
+    
+    // Only notify buyer if they didn't accept (i.e., seller accepted)
+    // If buyer accepted, they don't need a notification to themselves
+    if (acceptedByUserId === buyerId) {
+      console.log('Buyer accepted the transaction, skipping notification to buyer');
+      return { success: true };
+    }
+    
     const message = `Transaction "${transaction.title}" has been accepted. Please fund the escrow with $${transaction.amount}.`;
     
-    await DatabaseService.createNotification({
+    const result = await DatabaseService.createNotification({
       user_id: buyerId,
       title: 'Payment Required',
       message: message,
@@ -53,6 +61,11 @@ export const notifyBuyerToPay = async (transaction) => {
         amount: transaction.amount,
       },
     });
+
+    if (result.error) {
+      console.error(`Failed to notify buyer ${buyerId}:`, result.error);
+      return { success: false, error: result.error };
+    }
 
     console.log(`Notified buyer ${buyerId} to pay`);
     
@@ -236,10 +249,10 @@ export const notifySupportAndSeller = async (transaction) => {
 /**
  * Execute action based on state transition
  */
-export const executeTransitionAction = async (transaction, toState) => {
+export const executeTransitionAction = async (transaction, toState, performedByUserId) => {
   const actions = {
     'pending_approval': notifyReceiver,
-    'accepted': notifyBuyerToPay,
+    'accepted': (txn) => notifyBuyerToPay(txn, performedByUserId),
     'funded': notifySellerStartWork,
     'in_progress': logSellerStarted,
     'delivered': notifyBuyerReview,

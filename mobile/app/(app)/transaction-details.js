@@ -1,4 +1,4 @@
-import React, { useState, useContext, useEffect } from 'react';
+import React, { useState, useContext, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -7,6 +7,8 @@ import { LanguageContext } from '../../src/context/LanguageContext';
 import * as TransactionService from '../../src/services/transactionService';
 import * as DatabaseService from '../../src/services/databaseService';
 import { TransactionState, getStateDisplayName, getStateColors } from '../../src/constants/transactionStates';
+import { supabase } from '../../src/lib/supabase';
+import TransactionProgressBar from '../../src/components/TransactionProgressBar';
 
 export default function TransactionDetailsScreen() {
   const router = useRouter();
@@ -15,6 +17,8 @@ export default function TransactionDetailsScreen() {
   const { t, isRTL } = useContext(LanguageContext);
   const [transaction, setTransaction] = useState(null);
   const [loading, setLoading] = useState(true);
+  
+  const fetchTransactionRef = useRef(null);
 
   // Check if user is test user
   const isTestUser = state.user?.email?.toLowerCase() === 'test@test.com' || 
@@ -44,130 +48,195 @@ export default function TransactionDetailsScreen() {
   };
 
   // Fetch transaction data
-  useEffect(() => {
-    const fetchTransaction = async () => {
-      if (!id) {
-        setLoading(false);
-        return;
-      }
+  const fetchTransaction = useCallback(async () => {
+    if (!id) {
+      setLoading(false);
+      return;
+    }
 
-      // Use test data for test user
-      if (isTestUser) {
-        setTransaction(testTransaction);
-        setLoading(false);
-        return;
-      }
+    // Use test data for test user
+    if (isTestUser) {
+      setTransaction(testTransaction);
+      setLoading(false);
+      return;
+    }
 
-      try {
-        const result = await TransactionService.getTransactionWithStateInfo(id, state.user?.id);
-        if (result.data) {
-          const txn = result.data;
-          const stateInfo = txn.stateInfo || {};
-          
-          // Determine user role - prevent being both buyer and seller
-          const userId = state.user?.id;
-          const isBuyer = txn.buyer_id === userId;
-          const isSeller = txn.seller_id === userId;
-          
-          // If somehow user is both, prioritize buyer role
-          let userRole = 'Buyer';
-          if (isBuyer && !isSeller) {
-            userRole = 'Buyer';
-          } else if (isSeller && !isBuyer) {
-            userRole = 'Seller';
-          } else if (isBuyer && isSeller) {
-            // Edge case: user is both (shouldn't happen, but handle it)
-            console.warn('User is both buyer and seller - defaulting to buyer');
-            userRole = 'Buyer';
-          } else {
-            // User is neither - determine from stateInfo or default
-            userRole = stateInfo.isBuyer ? 'Buyer' : (stateInfo.isSeller ? 'Seller' : 'Buyer');
-          }
-          
-          // Fetch buyer and seller profiles for names
-          let buyerName = 'Buyer';
-          let sellerName = 'Seller';
-          
-          if (txn.buyer_id) {
-            const buyerProfile = await DatabaseService.getUserProfile(txn.buyer_id);
-            buyerName = buyerProfile.data?.name || 'Buyer';
-          }
-          
-          if (txn.seller_id) {
-            const sellerProfile = await DatabaseService.getUserProfile(txn.seller_id);
-            sellerName = sellerProfile.data?.name || 'Seller';
-          }
-
-          // Convert terms to array - handle both string and array formats
-          let termsArray = [];
-          if (txn.transaction_terms && Array.isArray(txn.transaction_terms)) {
-            termsArray = txn.transaction_terms.map(term => term.term || term);
-          } else if (txn.terms) {
-            if (typeof txn.terms === 'string') {
-              termsArray = txn.terms.split('\n').filter(term => term.trim() !== '');
-            } else if (Array.isArray(txn.terms)) {
-              termsArray = txn.terms;
-            }
-          }
-
-          // Normalize status for available actions calculation
-          const rawStatus = txn.status || 'draft';
-          const statusLower = (rawStatus || '').toLowerCase().trim();
-          const normalizedStatus = statusLower === 'pending' ? TransactionState.PENDING_APPROVAL : 
-                                  statusLower === 'accepted' ? TransactionState.ACCEPTED :
-                                  statusLower === 'funded' ? TransactionState.FUNDED :
-                                  statusLower === 'in progress' || statusLower === 'in_progress' ? TransactionState.IN_PROGRESS :
-                                  statusLower === 'delivered' ? TransactionState.DELIVERED :
-                                  statusLower === 'completed' ? TransactionState.COMPLETED :
-                                  statusLower === 'cancelled' || statusLower === 'canceled' ? TransactionState.CANCELLED :
-                                  statusLower === 'disputed' || statusLower === 'in dispute' ? TransactionState.DISPUTED :
-                                  rawStatus;
-
-          // Manually calculate available actions if stateInfo doesn't have them
-          let availableActions = stateInfo.availableActions || [];
-          if (availableActions.length === 0) {
-            if (userRole === 'Seller' && (normalizedStatus === TransactionState.PENDING_APPROVAL || statusLower === 'pending')) {
-              availableActions.push({ action: 'accept', state: TransactionState.ACCEPTED, label: 'Accept Transaction' });
-            }
-            if (userRole === 'Buyer' && (normalizedStatus === TransactionState.ACCEPTED || statusLower === 'accepted')) {
-              availableActions.push({ action: 'fund', state: TransactionState.FUNDED, label: 'Fund Transaction' });
-            }
-          }
-
-          setTransaction({
-            ...txn,
-            buyer: buyerName,
-            seller: sellerName,
-            startDate: new Date(txn.created_at).toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric', 
-              year: 'numeric' 
-            }),
-            deliveryDate: txn.delivery_date ? new Date(txn.delivery_date).toLocaleDateString('en-US', { 
-              month: 'short', 
-              day: 'numeric', 
-              year: 'numeric' 
-            }) : null,
-            amount: parseFloat(txn.amount || 0),
-            role: userRole,
-            terms: termsArray,
-            // Preserve stateInfo and add calculated values
-            stateInfo: {
-              ...stateInfo,
-              isBuyer: userRole === 'Buyer',
-              isSeller: userRole === 'Seller',
-              availableActions: availableActions,
-            },
-          });
+    try {
+      const result = await TransactionService.getTransactionWithStateInfo(id, state.user?.id);
+      if (result.data) {
+        const txn = result.data;
+        const stateInfo = txn.stateInfo || {};
+        
+        // Determine user role - prevent being both buyer and seller
+        const userId = state.user?.id;
+        const isBuyer = txn.buyer_id === userId;
+        const isSeller = txn.seller_id === userId;
+        
+        // If somehow user is both, prioritize buyer role
+        let userRole = 'Buyer';
+        if (isBuyer && !isSeller) {
+          userRole = 'Buyer';
+        } else if (isSeller && !isBuyer) {
+          userRole = 'Seller';
+        } else if (isBuyer && isSeller) {
+          // Edge case: user is both (shouldn't happen, but handle it)
+          console.warn('User is both buyer and seller - defaulting to buyer');
+          userRole = 'Buyer';
+        } else {
+          // User is neither - determine from stateInfo or default
+          userRole = stateInfo.isBuyer ? 'Buyer' : (stateInfo.isSeller ? 'Seller' : 'Buyer');
         }
-        setLoading(false);
-      } catch (error) {
-        console.error('Error fetching transaction:', error);
-        setLoading(false);
-      }
-    };
+        
+        // Fetch buyer and seller profiles for names
+        let buyerName = 'Buyer';
+        let sellerName = 'Seller';
+        
+        if (txn.buyer_id) {
+          const buyerProfile = await DatabaseService.getUserProfile(txn.buyer_id);
+          buyerName = buyerProfile.data?.name || 'Buyer';
+        }
+        
+        if (txn.seller_id) {
+          const sellerProfile = await DatabaseService.getUserProfile(txn.seller_id);
+          sellerName = sellerProfile.data?.name || 'Seller';
+        }
 
+        // Convert terms to array - handle both string and array formats
+        let termsArray = [];
+        if (txn.transaction_terms && Array.isArray(txn.transaction_terms)) {
+          termsArray = txn.transaction_terms.map(term => term.term || term);
+        } else if (txn.terms) {
+          if (typeof txn.terms === 'string') {
+            termsArray = txn.terms.split('\n').filter(term => term.trim() !== '');
+          } else if (Array.isArray(txn.terms)) {
+            termsArray = txn.terms;
+          }
+        }
+
+        // Normalize status for available actions calculation
+        const rawStatus = txn.status || 'draft';
+        const statusLower = (rawStatus || '').toLowerCase().trim();
+        const normalizedStatus = statusLower === 'pending' ? TransactionState.PENDING_APPROVAL : 
+                                statusLower === 'accepted' ? TransactionState.ACCEPTED :
+                                statusLower === 'funded' ? TransactionState.FUNDED :
+                                statusLower === 'in progress' || statusLower === 'in_progress' ? TransactionState.IN_PROGRESS :
+                                statusLower === 'delivered' ? TransactionState.DELIVERED :
+                                statusLower === 'completed' ? TransactionState.COMPLETED :
+                                statusLower === 'cancelled' || statusLower === 'canceled' ? TransactionState.CANCELLED :
+                                statusLower === 'disputed' || statusLower === 'in dispute' ? TransactionState.DISPUTED :
+                                rawStatus;
+
+        // Use availableActions from stateInfo (which includes initiated_by logic)
+        // Don't override with fallback logic - let transactionService handle it
+        let availableActions = stateInfo.availableActions || [];
+
+        setTransaction({
+          ...txn,
+          buyer: buyerName,
+          seller: sellerName,
+          startDate: new Date(txn.created_at).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            year: 'numeric' 
+          }),
+          deliveryDate: txn.delivery_date ? new Date(txn.delivery_date).toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric', 
+            year: 'numeric' 
+          }) : null,
+          amount: parseFloat(txn.amount || 0),
+          role: userRole,
+          terms: termsArray,
+          // Explicitly preserve initiated_by
+          initiated_by: txn.initiated_by,
+          // Preserve stateInfo and add calculated values
+          stateInfo: {
+            ...stateInfo,
+            isBuyer: userRole === 'Buyer',
+            isSeller: userRole === 'Seller',
+            availableActions: availableActions,
+          },
+        });
+      }
+      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching transaction:', error);
+      setLoading(false);
+    }
+  }, [id, state.user?.id, isTestUser]);
+
+  useEffect(() => {
+    fetchTransactionRef.current = fetchTransaction;
     fetchTransaction();
+  }, [fetchTransaction]);
+
+  // Set up realtime subscription for transaction updates
+  useEffect(() => {
+    if (!id || !state.user?.id || isTestUser) {
+      return;
+    }
+
+    console.log('Setting up realtime subscription for transaction:', id);
+    
+    const channel = supabase
+      .channel(`transaction-${id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'transactions',
+          filter: `id=eq.${id}`,
+        },
+        (payload) => {
+          console.log('Transaction updated:', payload.new);
+          const updatedTransaction = payload.new;
+          if (updatedTransaction.id === id) {
+            console.log('Transaction status changed, refreshing data...');
+            if (fetchTransactionRef.current) {
+              fetchTransactionRef.current();
+            }
+          }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'DELETE',
+          schema: 'public',
+          table: 'transactions',
+          filter: `id=eq.${id}`,
+        },
+        (payload) => {
+          console.log('Transaction deleted:', payload.old);
+          Alert.alert(
+            'Transaction Deleted',
+            'This transaction has been deleted.',
+            [
+              {
+                text: 'OK',
+                onPress: () => {
+                  router.push('/(app)/home');
+                },
+              },
+            ]
+          );
+        }
+      )
+      .subscribe((status) => {
+        console.log('Transaction realtime subscription status:', status);
+        if (status === 'SUBSCRIBED') {
+          console.log('Successfully subscribed to transaction changes');
+        } else if (status === 'CHANNEL_ERROR') {
+          console.error('Transaction realtime subscription error');
+        }
+      });
+
+    // Cleanup subscription on unmount
+    return () => {
+      console.log('Cleaning up transaction realtime subscription...');
+      supabase.removeChannel(channel);
+    };
   }, [id, state.user?.id, isTestUser]);
 
   // Use state machine colors
@@ -192,8 +261,11 @@ export default function TransactionDetailsScreen() {
     return '****' + userId.slice(-4);
   };
 
-  const handleStateTransition = async (action, state) => {
-    if (!transaction || !state.user?.id) return;
+  const handleStateTransition = async (action, targetState) => {
+    if (!transaction || !state.user?.id) {
+      console.warn('Cannot transition: missing transaction or user', { transaction: !!transaction, userId: state.user?.id });
+      return;
+    }
 
     try {
       let result;
@@ -232,7 +304,7 @@ export default function TransactionDetailsScreen() {
                   const disputeResult = await TransactionService.disputeTransaction(transaction.id, state.user.id, reason);
                   if (disputeResult.success) {
                     Alert.alert('Success', 'Dispute opened successfully');
-                    router.back();
+                    router.push('/(app)/home');
                   } else {
                     Alert.alert('Error', disputeResult.error || 'Failed to open dispute');
                   }
@@ -255,7 +327,7 @@ export default function TransactionDetailsScreen() {
                   const cancelResult = await TransactionService.cancelTransaction(transaction.id, state.user.id);
                   if (cancelResult.success) {
                     Alert.alert('Success', 'Transaction cancelled');
-                    router.back();
+                    router.push('/(app)/home');
                   } else {
                     Alert.alert('Error', cancelResult.error || 'Failed to cancel transaction');
                   }
@@ -265,6 +337,7 @@ export default function TransactionDetailsScreen() {
           );
           return;
         default:
+          console.warn('Unknown action:', action);
           return;
       }
 
@@ -277,6 +350,8 @@ export default function TransactionDetailsScreen() {
         }
       } else if (result && result.error) {
         Alert.alert('Error', result.error);
+      } else {
+        console.warn('No result returned from action:', action, result);
       }
     } catch (error) {
       console.error('State transition error:', error);
@@ -296,7 +371,7 @@ export default function TransactionDetailsScreen() {
           onPress: async () => {
             if (isTestUser) {
               Alert.alert('Success', 'Transaction deleted successfully (test mode)');
-              router.back();
+              router.push('/(app)/home');
               return;
             }
 
@@ -317,7 +392,7 @@ export default function TransactionDetailsScreen() {
                 {
                   text: 'OK',
                   onPress: () => {
-                    router.back();
+                    router.push('/(app)/home');
                   },
                 },
               ]);
@@ -375,9 +450,31 @@ export default function TransactionDetailsScreen() {
   const currentState = normalizeStatus(rawStatus);
   const statusColors = getStateColors(currentState);
   const statusDisplayName = getStateDisplayName(currentState);
-  const roleColors = getRoleColor(transaction.role);
   const stateInfo = transaction.stateInfo || {};
   const availableActions = stateInfo.availableActions || [];
+
+  // Determine user role - use transaction.role, stateInfo, or determine from buyer_id/seller_id
+  let userRole = transaction.role;
+  if (!userRole) {
+    // Fallback: determine from stateInfo
+    if (stateInfo.isSeller) {
+      userRole = 'Seller';
+    } else if (stateInfo.isBuyer) {
+      userRole = 'Buyer';
+    } else {
+      // Fallback: determine from buyer_id/seller_id
+      const userId = state.user?.id;
+      if (transaction.seller_id === userId) {
+        userRole = 'Seller';
+      } else if (transaction.buyer_id === userId) {
+        userRole = 'Buyer';
+      } else {
+        userRole = 'Buyer'; // Default fallback
+      }
+    }
+  }
+  
+  const roleColors = getRoleColor(userRole);
 
   // Determine if buttons should show (check both normalized and raw status)
   const isPendingApproval = statusLower === 'pending' || 
@@ -387,10 +484,27 @@ export default function TransactionDetailsScreen() {
                     currentState === TransactionState.ACCEPTED;
   
   // Ensure user can only be one role (prevent both buyer and seller)
-  const isSeller = (transaction.role === 'Seller' || transaction.role === 'seller' || stateInfo.isSeller === true) &&
-                   !(transaction.role === 'Buyer' || transaction.role === 'buyer' || stateInfo.isBuyer === true);
-  const isBuyer = (transaction.role === 'Buyer' || transaction.role === 'buyer' || stateInfo.isBuyer === true) &&
-                 !(transaction.role === 'Seller' || transaction.role === 'seller' || stateInfo.isSeller === true);
+  const isSeller = (userRole === 'Seller' || userRole === 'seller' || stateInfo.isSeller === true) &&
+                   !(userRole === 'Buyer' || userRole === 'buyer' || stateInfo.isBuyer === true);
+  const isBuyer = (userRole === 'Buyer' || userRole === 'buyer' || stateInfo.isBuyer === true) &&
+                 !(userRole === 'Seller' || userRole === 'seller' || stateInfo.isSeller === true);
+  
+  // Check if current user is the initiator
+  const initiatedBy = transaction.initiated_by;
+  const isInitiator = initiatedBy && initiatedBy === state.user?.id;
+  
+  // Debug logging
+  if (isPendingApproval) {
+    console.log('Button visibility check:', {
+      transactionId: transaction.id,
+      initiatedBy,
+      currentUserId: state.user?.id,
+      isInitiator,
+      isPendingApproval,
+      willShowAcceptReject: isPendingApproval && !isInitiator,
+      willShowCancel: isPendingApproval && isInitiator,
+    });
+  }
 
   return (
     <View style={styles.container}>
@@ -398,7 +512,7 @@ export default function TransactionDetailsScreen() {
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Header */}
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <TouchableOpacity onPress={() => router.push('/(app)/home')} style={styles.backButton}>
             <Text style={styles.backIcon}>←</Text>
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Transaction Details</Text>
@@ -412,12 +526,17 @@ export default function TransactionDetailsScreen() {
               {statusDisplayName}
             </Text>
           </View>
-          <View style={[styles.roleTag, { backgroundColor: roleColors.bg }]}>
-            <Text style={[styles.roleTagText, { color: roleColors.text }]}>
-              {transaction.role}
-            </Text>
-          </View>
+          {userRole && (
+            <View style={[styles.roleTag, { backgroundColor: roleColors.bg }]}>
+              <Text style={[styles.roleTagText, { color: roleColors.text }]}>
+                {userRole}
+              </Text>
+            </View>
+          )}
         </View>
+
+        {/* Progress Bar */}
+        <TransactionProgressBar status={currentState} />
 
         {/* Transaction Info Card */}
         <View style={styles.infoCard}>
@@ -448,12 +567,12 @@ export default function TransactionDetailsScreen() {
           {/* Show only the other party (not the current user) */}
           <View style={styles.infoRow}>
             <Text style={styles.infoLabel}>
-              {transaction.role === 'Buyer' ? 'Seller:' : 'Buyer:'}
+              {userRole === 'Buyer' ? 'Seller:' : 'Buyer:'}
             </Text>
             <Text style={styles.infoValue}>
-              {transaction.role === 'Buyer' 
-                ? (transaction.seller || maskUserId(transaction.sellerId))
-                : (transaction.buyer || maskUserId(transaction.buyerId))
+              {userRole === 'Buyer' 
+                ? (transaction.seller || maskUserId(transaction.seller_id))
+                : (transaction.buyer || maskUserId(transaction.buyer_id))
               }
             </Text>
           </View>
@@ -474,25 +593,39 @@ export default function TransactionDetailsScreen() {
 
           <View style={styles.termsSection}>
             <Text style={styles.infoLabel}>Terms:</Text>
-            {transaction.terms.map((term, index) => (
-              <Text key={index} style={styles.termItem}>• {term}</Text>
-            ))}
+            {transaction.terms && Array.isArray(transaction.terms) && transaction.terms.length > 0 ? (
+              transaction.terms.map((term, index) => (
+                <Text key={index} style={styles.termItem}>• {term}</Text>
+              ))
+            ) : (
+              <Text style={styles.termItem}>No terms specified</Text>
+            )}
           </View>
         </View>
 
         {/* Action Buttons */}
         <View style={styles.actionsContainer}>
-          {/* Accept/Reject Buttons - Show prominently for pending_approval state */}
+          {/* Accept/Reject Buttons - Show for pending_approval state (only to non-initiator) */}
           {(() => {
-            // Show buttons if status is "Pending" (old) or "pending_approval" (new) and user is seller
-            const showAcceptReject = isPendingApproval && isSeller && !isBuyer;
+            // NEVER show accept/reject if user is the initiator
+            const initiatedBy = transaction.initiated_by;
+            const currentUserId = state.user?.id;
+            const userIsInitiator = initiatedBy && String(initiatedBy) === String(currentUserId);
+            
+            // Early return if user is initiator
+            if (userIsInitiator) {
+              return null;
+            }
+            
+            // Show accept/reject buttons only if transaction is in pending_approval state
+            const showAcceptReject = isPendingApproval;
             
             if (showAcceptReject) {
               return (
                 <View style={styles.acceptRejectContainer}>
                   <TouchableOpacity
                     style={styles.acceptButton}
-                    onPress={() => handleStateTransition('accept', state)}
+                    onPress={() => handleStateTransition('accept', TransactionState.ACCEPTED)}
                   >
                     <Text style={styles.acceptButtonText}>✓ {t('accept') || 'Accept Transaction'}</Text>
                   </TouchableOpacity>
@@ -507,13 +640,52 @@ export default function TransactionDetailsScreen() {
                           {
                             text: 'Reject',
                             style: 'destructive',
-                            onPress: () => handleStateTransition('cancel', state),
+                            onPress: () => handleStateTransition('cancel', TransactionState.CANCELLED),
                           },
                         ]
                       );
                     }}
                   >
                     <Text style={styles.rejectButtonText}>✕ {t('reject') || 'Reject Transaction'}</Text>
+                  </TouchableOpacity>
+                </View>
+              );
+            }
+            return null;
+          })()}
+
+          {/* Cancel Button - Show for pending_approval state (only to initiator) */}
+          {(() => {
+            // Show cancel button only if:
+            // 1. Transaction is in pending_approval state
+            // 2. User IS the initiator
+            // 3. Explicitly check that initiated_by exists and user is the initiator
+            const initiatedBy = transaction.initiated_by;
+            const currentUserId = state.user?.id;
+            const userIsInitiator = initiatedBy && initiatedBy === currentUserId;
+            const showCancel = isPendingApproval && userIsInitiator;
+            
+            if (showCancel) {
+              return (
+                <View style={styles.acceptRejectContainer}>
+                  <TouchableOpacity
+                    style={styles.rejectButton}
+                    onPress={() => {
+                      Alert.alert(
+                        'Cancel Transaction',
+                        'Are you sure you want to cancel this transaction?',
+                        [
+                          { text: 'No', style: 'cancel' },
+                          {
+                            text: 'Yes, Cancel',
+                            style: 'destructive',
+                            onPress: () => handleStateTransition('cancel', TransactionState.CANCELLED),
+                          },
+                        ]
+                      );
+                    }}
+                  >
+                    <Text style={styles.rejectButtonText}>✕ {t('cancel') || 'Cancel Transaction'}</Text>
                   </TouchableOpacity>
                 </View>
               );
@@ -568,8 +740,8 @@ export default function TransactionDetailsScreen() {
             <Text style={styles.messageButtonText}>{t('message') || 'Message'}</Text>
           </TouchableOpacity>
 
-          {/* Delete button - only show if status is draft */}
-          {currentState === TransactionState.DRAFT && (
+          {/* Delete button - only show for cancelled transactions */}
+          {(currentState === TransactionState.CANCELLED || statusLower === 'cancelled' || statusLower === 'canceled') && (
             <TouchableOpacity
               style={styles.deleteButton}
               onPress={handleDeleteTransaction}
@@ -578,17 +750,29 @@ export default function TransactionDetailsScreen() {
             </TouchableOpacity>
           )}
 
-          {/* Dynamic action buttons based on state machine - hide if we already showed accept/reject or fund/cancel */}
+          {/* Dynamic action buttons based on state machine - hide if we already showed accept/reject, cancel (initiator), or fund/cancel */}
           {(() => {
-            const showAcceptReject = isPendingApproval && isSeller && !isBuyer;
+            const showAcceptReject = isPendingApproval && !isInitiator;
+            const showCancelInitiator = isPendingApproval && isInitiator;
             const showFundCancel = isAccepted && isBuyer && !isSeller;
             
             // Only show other actions if we didn't show the prominent buttons
-            if (showAcceptReject || showFundCancel) {
+            if (showAcceptReject || showCancelInitiator || showFundCancel) {
               return null;
             }
             
-            return availableActions.map((actionItem, index) => (
+            // Filter out accept/reject actions for initiator
+            const initiatedBy = transaction.initiated_by;
+            const currentUserId = state.user?.id;
+            const userIsInitiator = initiatedBy && initiatedBy === currentUserId;
+            const filteredActions = availableActions.filter(actionItem => {
+              if (userIsInitiator && (actionItem.action === 'accept' || actionItem.action === 'reject')) {
+                return false;
+              }
+              return true;
+            });
+            
+            return filteredActions.map((actionItem, index) => (
               <TouchableOpacity
                 key={index}
                 style={

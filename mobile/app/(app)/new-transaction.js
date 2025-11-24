@@ -253,6 +253,8 @@ export default function NewTransactionScreen() {
         // Store terms as JSON or in a separate table
         // For now, we'll store it as a text field if the schema supports it
         terms: formData.terms.filter(term => term.trim() !== '').join('\n'),
+        // Set initiated_by to the current user (the one creating the transaction)
+        initiated_by: state.user.id,
       };
 
       // Create the transaction
