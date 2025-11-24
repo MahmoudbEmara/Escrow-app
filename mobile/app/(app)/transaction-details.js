@@ -210,11 +210,11 @@ export default function TransactionDetailsScreen() {
         (payload) => {
           console.log('Transaction deleted:', payload.old);
           Alert.alert(
-            'Transaction Deleted',
-            'This transaction has been deleted.',
+            t('transactionDeleted'),
+            t('transactionDeleted'),
             [
               {
-                text: 'OK',
+                text: t('ok') || 'OK',
                 onPress: () => {
                   router.push('/(app)/home');
                 },
@@ -290,23 +290,23 @@ export default function TransactionDetailsScreen() {
           break;
         case 'dispute':
           Alert.prompt(
-            'Open Dispute',
-            'Please provide a reason for the dispute:',
+            t('openDispute'),
+            t('pleaseProvideDisputeReason'),
             [
-              { text: 'Cancel', style: 'cancel' },
+              { text: t('cancel'), style: 'cancel' },
               {
-                text: 'Submit',
+                text: t('submit'),
                 onPress: async (reason) => {
                   if (!reason) {
-                    Alert.alert('Error', 'Please provide a dispute reason');
+                    Alert.alert(t('error'), t('pleaseProvideDisputeReason'));
                     return;
                   }
                   const disputeResult = await TransactionService.disputeTransaction(transaction.id, state.user.id, reason);
                   if (disputeResult.success) {
-                    Alert.alert('Success', 'Dispute opened successfully');
+                    Alert.alert(t('success'), t('disputeOpened'));
                     router.push('/(app)/home');
                   } else {
-                    Alert.alert('Error', disputeResult.error || 'Failed to open dispute');
+                    Alert.alert(t('error'), disputeResult.error || t('failedToOpenDispute'));
                   }
                 },
               },
@@ -316,20 +316,20 @@ export default function TransactionDetailsScreen() {
           return;
         case 'cancel':
           Alert.alert(
-            'Cancel Transaction',
-            'Are you sure you want to cancel this transaction?',
+            t('cancelTransaction'),
+            t('confirmCancelTransaction'),
             [
-              { text: 'No', style: 'cancel' },
+              { text: t('no'), style: 'cancel' },
               {
-                text: 'Yes, Cancel',
+                text: t('yesCancel'),
                 style: 'destructive',
                 onPress: async () => {
                   const cancelResult = await TransactionService.cancelTransaction(transaction.id, state.user.id);
                   if (cancelResult.success) {
-                    Alert.alert('Success', 'Transaction cancelled');
+                    Alert.alert(t('success'), t('transactionCancelled'));
                     router.push('/(app)/home');
                   } else {
-                    Alert.alert('Error', cancelResult.error || 'Failed to cancel transaction');
+                    Alert.alert(t('error'), cancelResult.error || t('failedToCancelTransaction'));
                   }
                 },
               },
@@ -342,35 +342,35 @@ export default function TransactionDetailsScreen() {
       }
 
       if (result && result.success) {
-        Alert.alert('Success', 'Transaction updated successfully');
+        Alert.alert(t('success'), t('transactionUpdated'));
         // Refresh transaction data
         const refreshResult = await TransactionService.getTransactionWithStateInfo(transaction.id, state.user.id);
         if (refreshResult.data) {
           setTransaction(refreshResult.data);
         }
       } else if (result && result.error) {
-        Alert.alert('Error', result.error);
+        Alert.alert(t('error'), result.error);
       } else {
         console.warn('No result returned from action:', action, result);
       }
     } catch (error) {
       console.error('State transition error:', error);
-      Alert.alert('Error', error.message || 'Failed to update transaction');
+      Alert.alert(t('error'), error.message || t('transactionUpdated'));
     }
   };
 
   const handleDeleteTransaction = () => {
     Alert.alert(
-      'Delete Transaction',
-      'Are you sure you want to delete this transaction? This will permanently remove the transaction and all related data (messages, terms, etc.). This action cannot be undone.',
+      t('deleteTransaction'),
+      t('confirmDeleteTransaction'),
       [
-        { text: 'Cancel', style: 'cancel' },
+        { text: t('cancel'), style: 'cancel' },
         {
-          text: 'Delete',
+          text: t('delete'),
           style: 'destructive',
           onPress: async () => {
             if (isTestUser) {
-              Alert.alert('Success', 'Transaction deleted successfully (test mode)');
+              Alert.alert(t('success'), t('transactionDeleted'));
               router.push('/(app)/home');
               return;
             }
@@ -384,13 +384,13 @@ export default function TransactionDetailsScreen() {
               if (result.error || !result.success) {
                 const errorMessage = result.error || 'Failed to delete transaction. Please check if you have permission or if the transaction status allows deletion.';
                 console.error('Delete failed:', errorMessage);
-                Alert.alert('Error', errorMessage);
+                Alert.alert(t('error'), errorMessage);
                 return;
               }
 
-              Alert.alert('Success', 'Transaction deleted successfully', [
+              Alert.alert(t('success'), t('transactionDeleted'), [
                 {
-                  text: 'OK',
+                  text: t('ok') || 'OK',
                   onPress: () => {
                     router.push('/(app)/home');
                   },
@@ -398,7 +398,7 @@ export default function TransactionDetailsScreen() {
               ]);
             } catch (error) {
               console.error('Delete transaction error:', error);
-              Alert.alert('Error', error.message || 'Failed to delete transaction. Please try again.');
+              Alert.alert(t('error'), error.message || t('failedToDeleteTransaction'));
             }
           },
         },
@@ -511,16 +511,16 @@ export default function TransactionDetailsScreen() {
       <StatusBar barStyle="dark-content" />
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, isRTL && styles.headerRTL]}>
           <TouchableOpacity onPress={() => router.push('/(app)/home')} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
+            <Text style={[styles.backIcon, isRTL && styles.backIconRTL]}>{isRTL ? '→' : '←'}</Text>
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Transaction Details</Text>
+          <Text style={[styles.headerTitle, isRTL && styles.textRTL]}>{t('transactionDetails') || 'Transaction Details'}</Text>
           <View style={styles.placeholder} />
         </View>
 
         {/* Status and Role Tags */}
-        <View style={styles.tagsContainer}>
+        <View style={[styles.tagsContainer, isRTL && styles.tagsContainerRTL]}>
           <View style={[styles.statusTag, { backgroundColor: statusColors.bg }]}>
             <Text style={[styles.statusTagText, { color: statusColors.text }]}>
               {statusDisplayName}
@@ -536,40 +536,40 @@ export default function TransactionDetailsScreen() {
         </View>
 
         {/* Progress Bar */}
-        <TransactionProgressBar status={currentState} />
+        <TransactionProgressBar status={currentState} isRTL={isRTL} />
 
         {/* Transaction Info Card */}
         <View style={styles.infoCard}>
           <Text style={styles.transactionTitle}>{transaction.title}</Text>
           
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Transaction ID:</Text>
-            <Text style={styles.infoValue}>{transaction.id}</Text>
+          <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
+            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('transactionId')}:</Text>
+            <Text style={[styles.infoValue, isRTL && styles.textRTL]}>{transaction.id}</Text>
           </View>
 
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Start Date:</Text>
-            <Text style={styles.infoValue}>{transaction.startDate}</Text>
+          <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
+            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('startDate')}:</Text>
+            <Text style={[styles.infoValue, isRTL && styles.textRTL]}>{transaction.startDate}</Text>
           </View>
 
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Delivery Date:</Text>
-            <Text style={styles.infoValue}>{transaction.deliveryDate}</Text>
+          <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
+            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('deliveryDate')}:</Text>
+            <Text style={[styles.infoValue, isRTL && styles.textRTL]}>{transaction.deliveryDate}</Text>
           </View>
 
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Category:</Text>
-            <Text style={styles.infoValue}>{transaction.category}</Text>
+          <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
+            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('category')}:</Text>
+            <Text style={[styles.infoValue, isRTL && styles.textRTL]}>{transaction.category}</Text>
           </View>
 
           <View style={styles.divider} />
 
           {/* Show only the other party (not the current user) */}
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>
-              {userRole === 'Buyer' ? 'Seller:' : 'Buyer:'}
+          <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
+            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>
+              {userRole === 'Buyer' ? `${t('seller')}:` : `${t('buyer')}:`}
             </Text>
-            <Text style={styles.infoValue}>
+            <Text style={[styles.infoValue, isRTL && styles.textRTL]}>
               {userRole === 'Buyer' 
                 ? (transaction.seller || maskUserId(transaction.seller_id))
                 : (transaction.buyer || maskUserId(transaction.buyer_id))
@@ -579,26 +579,26 @@ export default function TransactionDetailsScreen() {
 
           <View style={styles.divider} />
 
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Amount:</Text>
-            <Text style={styles.amountValue}>{transaction.amount.toFixed(2)} EGP</Text>
+          <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
+            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('amount')}:</Text>
+            <Text style={[styles.amountValue, isRTL && styles.textRTL]}>{transaction.amount.toFixed(2)} EGP</Text>
           </View>
 
-          <View style={styles.infoRow}>
-            <Text style={styles.infoLabel}>Fees Paid By:</Text>
-            <Text style={styles.infoValue}>{transaction.feesResponsibility}</Text>
+          <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
+            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('feesPaidBy')}:</Text>
+            <Text style={[styles.infoValue, isRTL && styles.textRTL]}>{transaction.feesResponsibility}</Text>
           </View>
 
           <View style={styles.divider} />
 
           <View style={styles.termsSection}>
-            <Text style={styles.infoLabel}>Terms:</Text>
+            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('terms')}:</Text>
             {transaction.terms && Array.isArray(transaction.terms) && transaction.terms.length > 0 ? (
               transaction.terms.map((term, index) => (
-                <Text key={index} style={styles.termItem}>• {term}</Text>
+                <Text key={index} style={[styles.termItem, isRTL && styles.textRTL]}>• {term}</Text>
               ))
             ) : (
-              <Text style={styles.termItem}>No terms specified</Text>
+              <Text style={[styles.termItem, isRTL && styles.textRTL]}>{t('noTermsSpecified')}</Text>
             )}
           </View>
         </View>
@@ -633,12 +633,12 @@ export default function TransactionDetailsScreen() {
                     style={styles.rejectButton}
                     onPress={() => {
                       Alert.alert(
-                        'Reject Transaction',
-                        'Are you sure you want to reject this transaction?',
+                        t('rejectTransaction'),
+                        t('confirmRejectTransaction'),
                         [
-                          { text: 'Cancel', style: 'cancel' },
+                          { text: t('cancel'), style: 'cancel' },
                           {
-                            text: 'Reject',
+                            text: t('reject'),
                             style: 'destructive',
                             onPress: () => handleStateTransition('cancel', TransactionState.CANCELLED),
                           },
@@ -672,12 +672,12 @@ export default function TransactionDetailsScreen() {
                     style={styles.rejectButton}
                     onPress={() => {
                       Alert.alert(
-                        'Cancel Transaction',
-                        'Are you sure you want to cancel this transaction?',
+                        t('cancelTransaction'),
+                        t('confirmCancelTransaction'),
                         [
-                          { text: 'No', style: 'cancel' },
+                          { text: t('no'), style: 'cancel' },
                           {
-                            text: 'Yes, Cancel',
+                            text: t('yesCancel'),
                             style: 'destructive',
                             onPress: () => handleStateTransition('cancel', TransactionState.CANCELLED),
                           },
@@ -711,12 +711,12 @@ export default function TransactionDetailsScreen() {
                     style={styles.rejectButton}
                     onPress={() => {
                       Alert.alert(
-                        'Cancel Transaction',
-                        'Are you sure you want to cancel this transaction?',
+                        t('cancelTransaction'),
+                        t('confirmCancelTransaction'),
                         [
-                          { text: 'No', style: 'cancel' },
+                          { text: t('no'), style: 'cancel' },
                           {
-                            text: 'Yes, Cancel',
+                            text: t('yesCancel'),
                             style: 'destructive',
                             onPress: () => handleStateTransition('cancel', state),
                           },
@@ -816,6 +816,9 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 20,
   },
+  headerRTL: {
+    flexDirection: 'row-reverse',
+  },
   backButton: {
     width: 40,
     height: 40,
@@ -826,10 +829,18 @@ const styles = StyleSheet.create({
     fontSize: 24,
     color: '#0f172a',
   },
+  backIconRTL: {
+    transform: [{ scaleX: -1 }],
+  },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#0f172a',
+    flex: 1,
+    textAlign: 'center',
+  },
+  textRTL: {
+    textAlign: 'right',
   },
   placeholder: {
     width: 40,
@@ -839,6 +850,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     marginBottom: 20,
     gap: 12,
+  },
+  tagsContainerRTL: {
+    flexDirection: 'row-reverse',
   },
   statusTag: {
     paddingHorizontal: 16,
@@ -877,6 +891,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginBottom: 16,
+  },
+  infoRowRTL: {
+    flexDirection: 'row-reverse',
   },
   infoLabel: {
     fontSize: 16,

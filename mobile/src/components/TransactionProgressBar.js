@@ -1,13 +1,14 @@
-import React from 'react';
+import React, { useContext } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Check, ChevronDown } from 'lucide-react-native';
+import { LanguageContext } from '../context/LanguageContext';
 
 const STEPS = [
-  { id: 1, label: 'Accepted', key: 'accepted' },
-  { id: 2, label: 'Money in escrow', key: 'funded' },
-  { id: 3, label: 'Delivery', key: 'delivery' },
-  { id: 4, label: 'Money released', key: 'released' },
-  { id: 5, label: 'Completed', key: 'completed' },
+  { id: 1, labelKey: 'progressAccepted', key: 'accepted' },
+  { id: 2, labelKey: 'progressMoneyInEscrow', key: 'funded' },
+  { id: 3, labelKey: 'progressDelivery', key: 'delivery' },
+  { id: 4, labelKey: 'progressMoneyReleased', key: 'released' },
+  { id: 5, labelKey: 'progressCompleted', key: 'completed' },
 ];
 
 const getStepStatus = (transactionStatus, stepKey) => {
@@ -60,15 +61,19 @@ const getStepStatus = (transactionStatus, stepKey) => {
   }
 };
 
-export default function TransactionProgressBar({ status }) {
+export default function TransactionProgressBar({ status, isRTL = false }) {
+  const { t } = useContext(LanguageContext);
   const transactionStatus = status || 'draft';
 
   const currentStepIndex = STEPS.findIndex(step => getStepStatus(transactionStatus, step.key) === 'current');
   const activeStepIndex = currentStepIndex >= 0 ? currentStepIndex : -1;
 
+  const displaySteps = isRTL ? [...STEPS].reverse() : STEPS;
+
   return (
     <View style={styles.container}>
-      {STEPS.map((step, index) => {
+      {displaySteps.map((step, displayIndex) => {
+        const originalIndex = isRTL ? STEPS.length - 1 - displayIndex : displayIndex;
         const stepStatus = getStepStatus(transactionStatus, step.key);
         const isCompleted = stepStatus === 'completed';
         const isCurrent = stepStatus === 'current';
@@ -76,7 +81,22 @@ export default function TransactionProgressBar({ status }) {
         const isDisabled = stepStatus === 'disabled';
 
         const circleColor = isCompleted || isCurrent ? '#00a63e' : '#d1d5dc';
-        const lineColor = (activeStepIndex >= 0 && index < activeStepIndex) ? '#00a63e' : '#d1d5dc';
+        
+        let lineColor = '#d1d5dc';
+        if (displayIndex < displaySteps.length - 1 && activeStepIndex >= 0) {
+          if (isRTL) {
+            const nextDisplayIndex = displayIndex + 1;
+            const nextOriginalIndex = STEPS.length - 1 - nextDisplayIndex;
+            if (originalIndex <= activeStepIndex && nextOriginalIndex <= activeStepIndex) {
+              lineColor = '#00a63e';
+            }
+          } else {
+            if (originalIndex < activeStepIndex) {
+              lineColor = '#00a63e';
+            }
+          }
+        }
+        
         const textColor = isCurrent ? '#364153' : (isPending || isDisabled ? '#99a1af' : '#364153');
 
         return (
@@ -84,8 +104,8 @@ export default function TransactionProgressBar({ status }) {
             <View style={styles.stepContent}>
               <View style={styles.stepCircleContainer}>
                 {isCurrent && (
-                  <View style={styles.chevronContainer}>
-                    <ChevronDown size={16} color="#00a63e" />
+                  <View style={[styles.chevronContainer, isRTL && styles.chevronContainerRTL]}>
+                    <ChevronDown size={16} color="#00a63e" style={isRTL && { transform: [{ scaleX: -1 }] }} />
                   </View>
                 )}
                 <View
@@ -114,10 +134,10 @@ export default function TransactionProgressBar({ status }) {
                   )}
                 </View>
               </View>
-              {index < STEPS.length - 1 && (
+              {displayIndex < displaySteps.length - 1 && (
                 <View
                   style={[
-                    styles.connector,
+                    isRTL ? styles.connectorRTL : styles.connector,
                     {
                       backgroundColor: lineColor,
                     },
@@ -128,13 +148,14 @@ export default function TransactionProgressBar({ status }) {
             <Text
               style={[
                 styles.stepLabel,
+                isRTL && styles.stepLabelRTL,
                 {
                   color: textColor,
                 },
               ]}
               numberOfLines={2}
             >
-              {step.label}
+              {t(step.labelKey) || step.labelKey}
             </Text>
           </View>
         );
@@ -175,6 +196,9 @@ const styles = StyleSheet.create({
     top: -20,
     zIndex: 1,
   },
+  chevronContainerRTL: {
+    transform: [{ scaleX: -1 }],
+  },
   stepCircle: {
     width: 40,
     height: 40,
@@ -197,12 +221,26 @@ const styles = StyleSheet.create({
     height: 2,
     zIndex: 0,
   },
+  connectorRTL: {
+    position: 'absolute',
+    top: 20,
+    left: '50%',
+    marginLeft: 20,
+    right: '-50%',
+    marginRight: 20,
+    height: 2,
+    zIndex: 0,
+  },
   stepLabel: {
     fontSize: 12,
     fontWeight: '500',
     textAlign: 'center',
     marginTop: 4,
     lineHeight: 16,
+  },
+  stepLabelRTL: {
+    textAlign: 'center',
+    writingDirection: 'rtl',
   },
 });
 

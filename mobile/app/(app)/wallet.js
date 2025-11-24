@@ -185,7 +185,7 @@ export default function WalletScreen() {
       <StatusBar barStyle="dark-content" />
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, isRTL && styles.headerRTL]}>
           <Text style={[styles.headerTitle, isRTL && styles.textRTL]}>{t('wallet')}</Text>
         </View>
 

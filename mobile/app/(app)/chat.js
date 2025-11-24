@@ -235,7 +235,7 @@ export default function ChatScreen() {
       {/* Header */}
       <View style={[styles.header, isRTL && styles.headerRTL]}>
         <TouchableOpacity onPress={() => router.push('/(app)/messages')} style={styles.backButton}>
-          <Text style={[styles.backIcon, isRTL && styles.backIconRTL]}>←</Text>
+          <Text style={[styles.backIcon, isRTL && styles.backIconRTL]}>{isRTL ? '→' : '←'}</Text>
         </TouchableOpacity>
         <View style={styles.headerInfo}>
           <Text style={[styles.headerTitle, isRTL && styles.textRTL]} numberOfLines={1}>

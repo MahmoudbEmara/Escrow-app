@@ -115,6 +115,10 @@ export default function AppLayout() {
     return <Redirect href="/(auth)/login" />;
   }
 
+  const tabOrder = isRTL 
+    ? ['settings', 'wallet', 'messages', 'home'] 
+    : ['home', 'messages', 'wallet', 'settings'];
+
   return (
     <Tabs
       screenOptions={{
@@ -122,31 +126,33 @@ export default function AppLayout() {
         tabBarStyle: {
           backgroundColor: '#ffffff',
           borderTopWidth: 1,
-          borderTopColor: '#e5e7eb', // gray-200 from Figma
+          borderTopColor: '#e5e7eb',
           position: 'absolute',
           bottom: 0,
           left: 0,
           right: 0,
-          paddingVertical: 12, // py-3 from Figma (0.75rem = 12px)
-          height: 80, // Adjusted to match Figma: 12px top + 8px item top + 24px icon + 4px gap + 12px text + 8px item bottom + 12px bottom = ~80px
-          paddingBottom: 0, // Remove extra padding, use safe area insets if needed
+          paddingVertical: 12,
+          height: 80,
+          paddingBottom: 0,
           flexDirection: isRTL ? 'row-reverse' : 'row',
-          justifyContent: 'space-around', // justify-around from Figma
-          elevation: 0, // Remove shadow on Android
-          shadowOpacity: 0, // Remove shadow on iOS
+          direction: isRTL ? 'rtl' : 'ltr',
+          justifyContent: 'space-around',
+          elevation: 0,
+          shadowOpacity: 0,
         },
-        tabBarActiveTintColor: '#2563eb', // blue-600 from Figma
-        tabBarInactiveTintColor: '#6b7280', // gray-500 from Figma
+        tabBarActiveTintColor: '#2563eb',
+        tabBarInactiveTintColor: '#6b7280',
         tabBarLabelStyle: {
-          fontSize: 12, // text-xs from Figma
-          fontWeight: '400', // normal weight from Figma
+          fontSize: 12,
+          fontWeight: '400',
           textAlign: 'center',
-          marginTop: 4, // gap-1 from Figma (0.25rem = 4px)
+          marginTop: 4,
           marginBottom: 0,
+          writingDirection: isRTL ? 'rtl' : 'ltr',
         },
         tabBarItemStyle: {
-          paddingVertical: 8, // py-2 from Figma (0.5rem = 8px)
-          paddingHorizontal: 16, // px-4 from Figma (1rem = 16px)
+          paddingVertical: 8,
+          paddingHorizontal: 16,
           height: 'auto',
         },
       }}

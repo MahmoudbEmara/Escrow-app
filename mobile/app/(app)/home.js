@@ -431,18 +431,18 @@ export default function HomeScreen() {
       >
         {/* User Profile Section */}
         <View style={[styles.header, isRTL && styles.headerRTL]}>
-          <View style={styles.profileSection}>
-            <View style={styles.profileImage}>
+          <View style={[styles.profileSection, isRTL && styles.profileSectionRTL]}>
+            <View style={[styles.profileImage, isRTL && styles.profileImageRTL]}>
               <Text style={styles.profileInitials}>
                 {getUserInitials(getUserDisplayName())}
               </Text>
             </View>
             <View style={styles.userInfo}>
-              <Text style={styles.welcomeText}>
+              <Text style={[styles.welcomeText, isRTL && styles.textRTL]}>
                 {t('welcome') || 'Welcome'}, <Text style={styles.firstNameHighlight}>{getUserFirstName()}</Text>
               </Text>
               {state.user?.profile?.username && (
-                <Text style={styles.userUsername}>@{state.user.profile.username}</Text>
+                <Text style={[styles.userUsername, isRTL && styles.textRTL]}>@{state.user.profile.username}</Text>
               )}
             </View>
           </View>
@@ -671,6 +671,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+  },
+  profileSectionRTL: {
+    flexDirection: 'row-reverse',
   },
   profileImage: {
     width: 50,

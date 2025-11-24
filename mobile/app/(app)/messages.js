@@ -203,18 +203,19 @@ export default function MessagesScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" />
       {/* Header */}
-      <View style={styles.header}>
-        <Text style={[styles.headerTitle, isRTL && styles.textRTL]}>Messages</Text>
+      <View style={[styles.header, isRTL && styles.headerRTL]}>
+        <Text style={[styles.headerTitle, isRTL && styles.textRTL]}>{t('chats') || 'Chats'}</Text>
         
         {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <Search size={20} color="#9ca3af" style={styles.searchIcon} />
+        <View style={[styles.searchContainer, isRTL && styles.searchContainerRTL]}>
+          <Search size={20} color="#9ca3af" style={[styles.searchIcon, isRTL && styles.searchIconRTL]} />
           <TextInput
             style={[styles.searchInput, isRTL && styles.searchInputRTL]}
-            placeholder="Search conversations..."
+            placeholder={t('searchConversations') || "Search conversations..."}
             placeholderTextColor="#9ca3af"
             value={searchQuery}
             onChangeText={setSearchQuery}
+            textAlign={isRTL ? 'right' : 'left'}
           />
         </View>
       </View>
@@ -333,25 +334,45 @@ const styles = StyleSheet.create({
     color: '#0f172a', // gray-900 from Figma
     marginBottom: 16, // mb-4 from Figma
   },
+  header: {
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 16,
+    backgroundColor: '#ffffff',
+  },
+  headerRTL: {
+    flexDirection: 'column',
+  },
+  headerRTL: {
+    flexDirection: 'column',
+  },
   searchContainer: {
     position: 'relative',
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 16,
+  },
+  searchContainerRTL: {
+    flexDirection: 'row-reverse',
   },
   searchIcon: {
     position: 'absolute',
-    left: 12, // left-3 from Figma
+    left: 12,
     zIndex: 1,
+  },
+  searchIconRTL: {
+    left: 'auto',
+    right: 12,
   },
   searchInput: {
     width: '100%',
-    paddingLeft: 40, // pl-10 from Figma
-    paddingRight: 16, // pr-4 from Figma
-    paddingVertical: 8, // py-2 from Figma
-    backgroundColor: '#f3f4f6', // bg-gray-100 from Figma
-    borderRadius: 8, // rounded-lg from Figma
+    paddingLeft: 40,
+    paddingRight: 16,
+    paddingVertical: 8,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 8,
     fontSize: 16,
-    color: '#0f172a', // text-gray-900
+    color: '#0f172a',
   },
   searchInputRTL: {
     paddingLeft: 16,
