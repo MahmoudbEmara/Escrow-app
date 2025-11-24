@@ -116,10 +116,17 @@ export const updateTable = async (table, id, updates) => {
       .update(updates)
       .eq('id', id)
       .select()
-      .single();
+      .maybeSingle();
 
     if (error) {
       throw error;
+    }
+
+    if (!data) {
+      return {
+        data: null,
+        error: `No rows updated. The record may not exist or you may not have permission to update it.`,
+      };
     }
 
     return {
@@ -479,11 +486,18 @@ export const transitionTransactionState = async (transactionId, toState, userId,
       };
     }
     
-    const updateResult = await updateTable('transactions', transactionId, {
+    const updateData = {
       status: dbStatus,
       updated_at: new Date().toISOString(),
-      ...(metadata.stateMetadata || {}),
-    });
+    };
+    
+    if (metadata.stateMetadata) {
+      if (metadata.stateMetadata.delivered_at) {
+        updateData.delivered_at = metadata.stateMetadata.delivered_at;
+      }
+    }
+    
+    const updateResult = await updateTable('transactions', transactionId, updateData);
 
     if (updateResult.error) {
       return {
@@ -1728,10 +1742,17 @@ export const getUserWallet = async (userId) => {
       .from('wallets')
       .select('*')
       .eq('user_id', userId)
-      .single();
+      .maybeSingle();
 
     if (error) {
       throw error;
+    }
+
+    if (!data) {
+      return {
+        data: null,
+        error: 'Wallet not found',
+      };
     }
 
     return {
@@ -1755,25 +1776,83 @@ export const getUserWallet = async (userId) => {
  */
 export const updateWalletBalance = async (userId, amount) => {
   try {
-    // First get current balance
-    const walletResult = await getUserWallet(userId);
-    if (walletResult.error || !walletResult.data) {
-      return walletResult;
-    }
-
-    const newBalance = (walletResult.data.balance || 0) + amount;
-
-    if (newBalance < 0) {
+    // Try using RPC function first (bypasses RLS)
+    try {
+      console.log(`Attempting to update wallet balance via RPC for user ${userId}, amount: ${amount}`);
+      const { data: rpcResult, error: rpcError } = await supabase.rpc(
+        'update_wallet_balance_for_user',
+        {
+          p_user_id: userId,
+          p_amount: amount,
+        }
+      );
+      
+      if (rpcError) {
+        console.warn('RPC update failed:', rpcError);
+        // Check if it's a "function doesn't exist" error
+        const isFunctionNotFound = rpcError.code === '42883' || 
+                                   rpcError.code === 'PGRST116' ||
+                                   rpcError.message?.includes('does not exist') || 
+                                   rpcError.message?.includes('function') ||
+                                   rpcError.message?.includes('Could not find');
+        
+        if (isFunctionNotFound) {
+          console.error('RPC function update_wallet_balance_for_user does not exist. Please run the migration create_wallet_update_function.sql in Supabase SQL Editor.');
+          return {
+            data: null,
+            error: 'Wallet update requires RPC function. Please run the migration create_wallet_update_function.sql in Supabase SQL Editor.',
+          };
+        }
+        
+        // If it's a business logic error (like insufficient balance), return it directly
+        // P0001 is PostgreSQL RAISE EXCEPTION, meaning the function exists but returned an error
+        if (rpcError.code === 'P0001' || rpcError.message?.includes('Insufficient balance')) {
+          return {
+            data: null,
+            error: rpcError.message || 'Failed to update wallet balance',
+          };
+        }
+        
+        throw rpcError;
+      }
+      
+      if (rpcResult) {
+        console.log('Successfully updated wallet balance via RPC');
+        return {
+          data: rpcResult,
+          error: null,
+        };
+      }
+    } catch (rpcErr) {
+      // If RPC function doesn't exist, we need to inform the user
+      const isFunctionNotFound = rpcErr.code === '42883' || 
+                                 rpcErr.code === 'PGRST116' ||
+                                 rpcErr.message?.includes('does not exist') || 
+                                 rpcErr.message?.includes('function') ||
+                                 rpcErr.message?.includes('Could not find');
+      
+      if (isFunctionNotFound) {
+        console.error('RPC function update_wallet_balance_for_user does not exist. Please run the migration create_wallet_update_function.sql in Supabase SQL Editor.');
+        return {
+          data: null,
+          error: 'Wallet update requires RPC function. Please run the migration create_wallet_update_function.sql in Supabase SQL Editor.',
+        };
+      }
+      
+      // If it's a business logic error (like insufficient balance), return it directly
+      if (rpcErr.code === 'P0001' || rpcErr.message?.includes('Insufficient balance')) {
+        return {
+          data: null,
+          error: rpcErr.message || 'Failed to update wallet balance',
+        };
+      }
+      
+      console.log('RPC function failed with unknown error:', rpcErr);
       return {
         data: null,
-        error: 'Insufficient balance',
+        error: rpcErr.message || 'Failed to update wallet balance',
       };
     }
-
-    return updateTable('wallets', walletResult.data.id, {
-      balance: newBalance,
-      updated_at: new Date().toISOString(),
-    });
   } catch (error) {
     console.error('Update wallet balance error:', error);
     return {
@@ -1808,7 +1887,63 @@ export const createWallet = async (userId, initialBalance = 0) => {
       };
     }
     
-    // Try to insert new wallet
+    // Try using RPC function first (bypasses RLS)
+    try {
+      console.log('Attempting to create wallet via RPC function...');
+      const { data: rpcResult, error: rpcError } = await supabase.rpc(
+        'insert_wallet_for_user',
+        {
+          p_user_id: userId,
+          p_initial_balance: initialBalance,
+        }
+      );
+      
+      if (rpcError) {
+        console.warn('RPC insert failed:', rpcError);
+        // Check if it's a "function doesn't exist" error
+        const isFunctionNotFound = rpcError.code === '42883' || 
+                                   rpcError.code === 'PGRST116' ||
+                                   rpcError.message?.includes('does not exist') || 
+                                   rpcError.message?.includes('function') ||
+                                   rpcError.message?.includes('Could not find');
+        
+        if (isFunctionNotFound) {
+          console.error('RPC function insert_wallet_for_user does not exist. Please run the migration create_wallet_insert_function.sql in Supabase SQL Editor.');
+          return {
+            data: null,
+            error: 'Wallet creation requires RPC function. Please run the migration create_wallet_insert_function.sql in Supabase SQL Editor.',
+          };
+        }
+        throw rpcError;
+      }
+      
+      if (rpcResult) {
+        console.log('Successfully created wallet via RPC');
+        return {
+          data: rpcResult,
+          error: null,
+        };
+      }
+    } catch (rpcErr) {
+      // If RPC function doesn't exist, we need to inform the user
+      const isFunctionNotFound = rpcErr.code === '42883' || 
+                                 rpcErr.code === 'PGRST116' ||
+                                 rpcErr.message?.includes('does not exist') || 
+                                 rpcErr.message?.includes('function') ||
+                                 rpcErr.message?.includes('Could not find');
+      
+      if (isFunctionNotFound) {
+        console.error('RPC function insert_wallet_for_user does not exist. Please run the migration create_wallet_insert_function.sql in Supabase SQL Editor.');
+        return {
+          data: null,
+          error: 'Wallet creation requires RPC function. Please run the migration create_wallet_insert_function.sql in Supabase SQL Editor.',
+        };
+      }
+      console.log('RPC function failed with unknown error, trying regular insert:', rpcErr);
+    }
+    
+    // Fallback to regular insert (will likely fail due to RLS, but try anyway)
+    console.log('Falling back to regular insert (may fail due to RLS)...');
     const result = await insertIntoTable('wallets', {
       user_id: userId,
       balance: initialBalance,
@@ -1919,14 +2054,63 @@ export const getTransactionHistory = async (userId, options = {}) => {
  * @returns {Promise<object>} - Created history entry
  */
 export const addTransactionHistory = async (historyData) => {
-  const insertData = {
-    ...historyData,
-    created_at: new Date().toISOString(),
-  };
-  
-  const { metadata: _, ...dataWithoutMetadata } = insertData;
-  
-  return insertIntoTable('transaction_history', dataWithoutMetadata);
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    const currentUserId = user?.id;
+    
+    if (!currentUserId) {
+      return {
+        data: null,
+        error: 'User not authenticated',
+      };
+    }
+    
+    const insertData = {
+      ...historyData,
+      created_at: new Date().toISOString(),
+    };
+    
+    const { metadata: _, ...dataWithoutMetadata } = insertData;
+    
+    // Try using RPC function first (bypasses RLS)
+    try {
+      const { data: rpcResult, error: rpcError } = await supabase.rpc(
+        'insert_transaction_history_for_transaction_participant',
+        {
+          p_user_id: dataWithoutMetadata.user_id,
+          p_transaction_id: dataWithoutMetadata.transaction_id,
+          p_type: dataWithoutMetadata.type,
+          p_amount: dataWithoutMetadata.amount || 0,
+          p_description: dataWithoutMetadata.description || '',
+          p_current_user_id: currentUserId,
+        }
+      );
+      
+      if (rpcError) {
+        console.warn('RPC insert failed, trying regular insert:', rpcError);
+        throw rpcError;
+      }
+      
+      if (rpcResult) {
+        console.log('Successfully inserted transaction history via RPC');
+        return {
+          data: rpcResult,
+          error: null,
+        };
+      }
+    } catch (rpcErr) {
+      console.log('RPC function failed or does not exist, trying regular insert');
+    }
+    
+    // Fallback to regular insert
+    return insertIntoTable('transaction_history', dataWithoutMetadata);
+  } catch (error) {
+    console.error('Error in addTransactionHistory:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to add transaction history',
+    };
+  }
 };
 
 // ==================== NOTIFICATIONS ====================
@@ -1966,9 +2150,14 @@ export const markNotificationAsRead = async (notificationId) => {
  * @param {object} notificationData - Notification data
  * @returns {Promise<object>} - Created notification
  */
-export const createNotification = async (notificationData) => {
+export const createNotification = async (notificationData, performedByUserId = null) => {
   try {
-    const currentUserId = (await supabase.auth.getUser()).data?.user?.id;
+    let currentUserId = performedByUserId;
+    
+    if (!currentUserId) {
+      const authResult = await supabase.auth.getUser();
+      currentUserId = authResult.data?.user?.id;
+    }
     
     if (!currentUserId) {
       console.error('Cannot create notification: User not authenticated');
@@ -1990,6 +2179,7 @@ export const createNotification = async (notificationData) => {
       user_id: notificationData.user_id,
       transaction_id: notificationData.data.transaction_id,
       current_user_id: currentUserId,
+      performedByUserId: performedByUserId,
     });
 
     const result = await supabase.rpc('insert_notification_for_transaction_participant', {

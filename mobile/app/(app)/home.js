@@ -185,17 +185,26 @@ export default function HomeScreen() {
 
           // Calculate escrow totals
           const inEscrow = formattedTransactions
-            .filter(t => t.status !== 'Completed' && t.status !== 'Cancelled')
+            .filter(t => {
+              const status = (t.status || '').toLowerCase().trim();
+              return status !== 'completed' && status !== 'cancelled';
+            })
             .reduce((sum, t) => sum + t.amount, 0);
           setTotalInEscrow(inEscrow);
 
           const incomingAmount = formattedTransactions
-            .filter(t => t.role === 'Seller' && t.status !== 'Completed' && t.status !== 'Cancelled')
+            .filter(t => {
+              const status = (t.status || '').toLowerCase().trim();
+              return t.role === 'Seller' && status !== 'completed' && status !== 'cancelled';
+            })
             .reduce((sum, t) => sum + t.amount, 0);
           setIncoming(incomingAmount);
 
           const outgoingAmount = formattedTransactions
-            .filter(t => t.role === 'Buyer' && t.status !== 'Completed' && t.status !== 'Cancelled')
+            .filter(t => {
+              const status = (t.status || '').toLowerCase().trim();
+              return t.role === 'Buyer' && status !== 'completed' && status !== 'cancelled';
+            })
             .reduce((sum, t) => sum + t.amount, 0);
           setOutgoing(outgoingAmount);
         }
@@ -299,17 +308,26 @@ export default function HomeScreen() {
               
               // Recalculate totals
               const inEscrow = updated
-                .filter(t => t.status !== 'Completed' && t.status !== 'Cancelled')
+                .filter(t => {
+                  const status = (t.status || '').toLowerCase().trim();
+                  return status !== 'completed' && status !== 'cancelled';
+                })
                 .reduce((sum, t) => sum + t.amount, 0);
               setTotalInEscrow(inEscrow);
 
               const incomingAmount = updated
-                .filter(t => t.role === 'Seller' && t.status !== 'Completed' && t.status !== 'Cancelled')
+                .filter(t => {
+                  const status = (t.status || '').toLowerCase().trim();
+                  return t.role === 'Seller' && status !== 'completed' && status !== 'cancelled';
+                })
                 .reduce((sum, t) => sum + t.amount, 0);
               setIncoming(incomingAmount);
 
               const outgoingAmount = updated
-                .filter(t => t.role === 'Buyer' && t.status !== 'Completed' && t.status !== 'Cancelled')
+                .filter(t => {
+                  const status = (t.status || '').toLowerCase().trim();
+                  return t.role === 'Buyer' && status !== 'completed' && status !== 'cancelled';
+                })
                 .reduce((sum, t) => sum + t.amount, 0);
               setOutgoing(outgoingAmount);
               
@@ -355,16 +373,7 @@ export default function HomeScreen() {
   };
 
   const getStatusColor = (status) => {
-    switch (status) {
-      case 'Completed':
-        return { bg: '#d1fae5', text: '#065f46' };
-      case 'In Progress':
-        return { bg: '#dbeafe', text: '#1e40af' };
-      case 'In Dispute':
-        return { bg: '#fee2e2', text: '#991b1b' };
-      default:
-        return { bg: '#f3f4f6', text: '#374151' };
-    }
+    return getStateColors(status);
   };
 
   const getRoleColor = (role) => {
@@ -381,12 +390,25 @@ export default function HomeScreen() {
   // Filter transactions based on selected filters
   const filteredTransactions = transactions.filter((transaction) => {
     if (selectedRole && transaction.role !== selectedRole) return false;
-    if (selectedStatus && transaction.status !== selectedStatus) return false;
+    if (selectedStatus) {
+      const normalizedStatus = (transaction.status || '').toLowerCase().trim();
+      const normalizedSelected = (selectedStatus || '').toLowerCase().trim();
+      if (normalizedStatus !== normalizedSelected) return false;
+    }
     return true;
   });
 
   const roles = ['Buyer', 'Seller'];
-  const statuses = ['In Progress', 'Completed', 'In Dispute'];
+  const statuses = [
+    'pending_approval',
+    'accepted',
+    'funded',
+    'in_progress',
+    'delivered',
+    'completed',
+    'cancelled',
+    'disputed',
+  ];
 
   const handleRoleSelect = (role) => {
     setSelectedRole(selectedRole === role ? null : role);
@@ -544,7 +566,7 @@ export default function HomeScreen() {
                 }}
               >
                 <Text style={[styles.filterButtonText, selectedStatus && styles.filterButtonTextActive]}>
-                  {selectedStatus || t('status')}
+                  {selectedStatus ? getStateDisplayName(selectedStatus) : t('status')}
                 </Text>
                 <Text style={styles.filterButtonIcon}>▼</Text>
               </TouchableOpacity>
@@ -563,7 +585,7 @@ export default function HomeScreen() {
                         styles.dropdownItemText,
                         selectedStatus === status && styles.dropdownItemTextActive
                       ]}>
-                        {status}
+                        {getStateDisplayName(status)}
                       </Text>
                       {selectedStatus === status && <Text style={styles.checkmark}>✓</Text>}
                     </TouchableOpacity>

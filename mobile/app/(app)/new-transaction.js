@@ -1,7 +1,7 @@
 import React, { useState, useContext, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
 import * as DatabaseService from '../../src/services/databaseService';
 import { calculateTransactionFee, getFeePercentageDisplay } from '../../src/constants/fees';
@@ -101,6 +101,27 @@ export default function NewTransactionScreen() {
 
     return () => clearTimeout(timeoutId);
   }, [formData.userId]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      setFormData({
+        title: '',
+        role: '',
+        userId: '',
+        userName: '',
+        amount: '',
+        terms: [''],
+        category: '',
+        feesResponsibility: '',
+        confirmed: false,
+        deliveryDate: '',
+      });
+      setShowSummary(false);
+      setOtherPartyName('');
+      setIsSubmitting(false);
+      setCheckingUser(false);
+    }, [])
+  );
 
   const handleTermChange = (index, text) => {
     const newTerms = [...formData.terms];
@@ -267,7 +288,24 @@ export default function NewTransactionScreen() {
         return;
       }
 
-      // Success
+      // Success - Reset form state before navigating
+      setFormData({
+        title: '',
+        role: '',
+        userId: '',
+        userName: '',
+        amount: '',
+        terms: [''],
+        category: '',
+        feesResponsibility: '',
+        confirmed: false,
+        deliveryDate: '',
+      });
+      setShowSummary(false);
+      setOtherPartyName('');
+      setIsSubmitting(false);
+      setCheckingUser(false);
+
       Alert.alert('Success', 'Transaction created successfully', [
         { 
           text: 'OK', 

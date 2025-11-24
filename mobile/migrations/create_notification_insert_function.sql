@@ -28,21 +28,27 @@ CREATE OR REPLACE FUNCTION insert_notification_for_transaction_participant(
 ) RETURNS JSONB AS $$
 DECLARE
   v_notification JSONB;
+  v_transaction RECORD;
 BEGIN
   -- Set search path explicitly to ensure public.transactions is found
   SET search_path = public, pg_temp;
 
   -- Verify both users are involved in the transaction
-  IF NOT EXISTS (
-    SELECT 1 FROM public.transactions
-    WHERE id = p_transaction_id
-    AND (
-      (buyer_id = p_current_user_id AND seller_id = p_user_id)
-      OR
-      (seller_id = p_current_user_id AND buyer_id = p_user_id)
-    )
+  SELECT buyer_id, seller_id INTO v_transaction
+  FROM public.transactions
+  WHERE id = p_transaction_id;
+  
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Transaction % does not exist', p_transaction_id;
+  END IF;
+  
+  IF NOT (
+    (v_transaction.buyer_id = p_current_user_id AND v_transaction.seller_id = p_user_id)
+    OR
+    (v_transaction.seller_id = p_current_user_id AND v_transaction.buyer_id = p_user_id)
   ) THEN
-    RAISE EXCEPTION 'Users are not both involved in this transaction';
+    RAISE EXCEPTION 'Users are not both involved in this transaction. Transaction: buyer=%, seller=%, Current user=%, Notification recipient=%', 
+      v_transaction.buyer_id, v_transaction.seller_id, p_current_user_id, p_user_id;
   END IF;
 
   -- Insert the notification and return it as JSONB

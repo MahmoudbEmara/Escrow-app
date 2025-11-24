@@ -168,10 +168,14 @@ export const releaseFundsToSeller = async (transaction) => {
     const amount = transaction.amount;
 
     // Update seller's wallet
-    await DatabaseService.updateWalletBalance(sellerId, amount);
+    const walletResult = await DatabaseService.updateWalletBalance(sellerId, amount);
+    if (walletResult.error) {
+      console.error('Failed to update seller wallet:', walletResult.error);
+      return { success: false, error: `Failed to update wallet: ${walletResult.error}` };
+    }
 
     // Add transaction history
-    await DatabaseService.addTransactionHistory({
+    const historyResult = await DatabaseService.addTransactionHistory({
       user_id: sellerId,
       transaction_id: transaction.id,
       type: 'escrow_release',
@@ -182,9 +186,14 @@ export const releaseFundsToSeller = async (transaction) => {
         released_at: new Date().toISOString(),
       },
     });
+    
+    if (historyResult.error) {
+      console.error('Failed to add transaction history:', historyResult.error);
+      // Continue anyway - wallet was updated
+    }
 
     // Notify seller
-    await DatabaseService.createNotification({
+    const notificationResult = await DatabaseService.createNotification({
       user_id: sellerId,
       title: 'Funds Released',
       message: `$${amount} has been released to your wallet for transaction "${transaction.title}".`,
@@ -195,6 +204,11 @@ export const releaseFundsToSeller = async (transaction) => {
         amount: amount,
       },
     });
+    
+    if (notificationResult.error) {
+      console.error('Failed to notify seller:', notificationResult.error);
+      // Continue anyway - funds were released
+    }
 
     console.log(`Released $${amount} to seller ${sellerId}`);
     
@@ -208,36 +222,36 @@ export const releaseFundsToSeller = async (transaction) => {
 /**
  * Notify support and seller about dispute
  */
-export const notifySupportAndSeller = async (transaction) => {
+export const notifySupportAndSeller = async (transaction, disputedByUserId) => {
   try {
     const sellerId = transaction.seller_id;
     const buyerId = transaction.buyer_id;
 
-    // Notify seller
-    await DatabaseService.createNotification({
-      user_id: sellerId,
-      title: 'Transaction Disputed',
-      message: `Transaction "${transaction.title}" has been disputed by the buyer.`,
-      type: 'dispute',
-      data: {
-        transaction_id: transaction.id,
-        state: 'disputed',
-      },
-    });
+    // Notify the other party (not the one who opened the dispute)
+    const otherPartyId = String(disputedByUserId) === String(buyerId) ? sellerId : buyerId;
+    
+    if (otherPartyId) {
+      const result = await DatabaseService.createNotification({
+        user_id: otherPartyId,
+        title: 'Transaction Disputed',
+        message: `Transaction "${transaction.title}" has been disputed by the ${String(disputedByUserId) === String(buyerId) ? 'buyer' : 'seller'}.`,
+        type: 'dispute',
+        data: {
+          transaction_id: transaction.id,
+          state: 'disputed',
+        },
+      }, disputedByUserId);
+      
+      if (result.error) {
+        console.error('Failed to notify other party about dispute:', result.error);
+        return { success: false, error: result.error };
+      }
+    }
 
-    // Notify buyer
-    await DatabaseService.createNotification({
-      user_id: buyerId,
-      title: 'Dispute Filed',
-      message: `Your dispute for transaction "${transaction.title}" has been received. Support will review it.`,
-      type: 'dispute',
-      data: {
-        transaction_id: transaction.id,
-        state: 'disputed',
-      },
-    });
+    // Don't notify the person who opened the dispute (they already know)
+    // The RPC function requires different parties, so self-notification would fail
 
-    console.log(`Notified support and seller about dispute for transaction ${transaction.id}`);
+    console.log(`Notified other party about dispute for transaction ${transaction.id}`);
     
     return { success: true };
   } catch (error) {
@@ -257,7 +271,7 @@ export const executeTransitionAction = async (transaction, toState, performedByU
     'in_progress': logSellerStarted,
     'delivered': notifyBuyerReview,
     'completed': releaseFundsToSeller,
-    'disputed': notifySupportAndSeller,
+    'disputed': (txn) => notifySupportAndSeller(txn, performedByUserId),
   };
 
   const action = actions[toState];

@@ -185,6 +185,7 @@ const translations = {
     progressAccepted: 'Accepted',
     progressMoneyInEscrow: 'Money in escrow',
     progressDelivery: 'Delivery',
+    progressDeliveryAcceptance: 'Delivery acceptance',
     progressMoneyReleased: 'Money released',
     progressCompleted: 'Completed',
     
@@ -395,11 +396,7 @@ const translations = {
     progressAccepted: 'مقبول',
     progressMoneyInEscrow: 'المال في الضمان',
     progressDelivery: 'التسليم',
-    progressMoneyReleased: 'تم إطلاق المال',
-    progressCompleted: 'مكتمل',
-    progressAccepted: 'مقبول',
-    progressMoneyInEscrow: 'المال في الضمان',
-    progressDelivery: 'التسليم',
+    progressDeliveryAcceptance: 'قبول التسليم',
     progressMoneyReleased: 'تم إطلاق المال',
     progressCompleted: 'مكتمل',
     

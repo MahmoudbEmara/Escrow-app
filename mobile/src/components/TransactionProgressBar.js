@@ -7,14 +7,15 @@ const STEPS = [
   { id: 1, labelKey: 'progressAccepted', key: 'accepted' },
   { id: 2, labelKey: 'progressMoneyInEscrow', key: 'funded' },
   { id: 3, labelKey: 'progressDelivery', key: 'delivery' },
-  { id: 4, labelKey: 'progressMoneyReleased', key: 'released' },
-  { id: 5, labelKey: 'progressCompleted', key: 'completed' },
+  { id: 4, labelKey: 'progressDeliveryAcceptance', key: 'delivery_acceptance' },
+  { id: 5, labelKey: 'progressMoneyReleased', key: 'released' },
+  { id: 6, labelKey: 'progressCompleted', key: 'completed' },
 ];
 
 const getStepStatus = (transactionStatus, stepKey) => {
   const stepIndex = STEPS.findIndex(s => s.key === stepKey);
   
-  if (transactionStatus === 'cancelled' || transactionStatus === 'disputed') {
+  if (transactionStatus === 'cancelled') {
     return 'disabled';
   }
 
@@ -43,9 +44,20 @@ const getStepStatus = (transactionStatus, stepKey) => {
       completedUpToStep = 2;
       currentStepIndex = 3;
       break;
+    case 'disputed':
+      if (stepKey === 'delivery_acceptance') {
+        return 'disputed';
+      }
+      completedUpToStep = 2;
+      currentStepIndex = 3;
+      break;
+    case 'delivered':
+      completedUpToStep = 2;
+      currentStepIndex = 3;
+      break;
     case 'completed':
-      completedUpToStep = 4;
-      currentStepIndex = 4;
+      completedUpToStep = 5;
+      currentStepIndex = 5;
       break;
     default:
       completedUpToStep = -1;
@@ -79,42 +91,85 @@ export default function TransactionProgressBar({ status, isRTL = false }) {
         const isCurrent = stepStatus === 'current';
         const isPending = stepStatus === 'pending';
         const isDisabled = stepStatus === 'disabled';
+        const isDisputed = stepStatus === 'disputed';
 
-        const circleColor = isCompleted || isCurrent ? '#00a63e' : '#d1d5dc';
+        const circleColor = isDisputed ? '#dc2626' : (isCompleted || isCurrent ? '#00a63e' : '#d1d5dc');
         
         let lineColor = '#d1d5dc';
-        if (displayIndex < displaySteps.length - 1 && activeStepIndex >= 0) {
-          if (isRTL) {
-            const nextDisplayIndex = displayIndex + 1;
-            const nextOriginalIndex = STEPS.length - 1 - nextDisplayIndex;
-            if (originalIndex <= activeStepIndex && nextOriginalIndex <= activeStepIndex) {
-              lineColor = '#00a63e';
+        if (displayIndex < displaySteps.length - 1) {
+          if (transactionStatus === 'completed') {
+            lineColor = '#00a63e';
+          } else if (transactionStatus === 'disputed') {
+            const currentStepIndex = originalIndex;
+            let nextStepIndex = -1;
+            
+            if (isRTL) {
+              const nextDisplayIndex = displayIndex + 1;
+              if (nextDisplayIndex < displaySteps.length) {
+                nextStepIndex = STEPS.length - 1 - nextDisplayIndex;
+              }
+              
+              if (nextStepIndex >= 0) {
+                if ((currentStepIndex === 1 && nextStepIndex === 0) || (currentStepIndex === 2 && nextStepIndex === 1)) {
+                  lineColor = '#00a63e';
+                } else if (currentStepIndex === 3 && nextStepIndex === 2) {
+                  lineColor = '#dc2626';
+                }
+              }
+            } else {
+              if (originalIndex + 1 < STEPS.length) {
+                nextStepIndex = originalIndex + 1;
+              }
+              
+              if (nextStepIndex >= 0 && nextStepIndex < STEPS.length) {
+                if ((currentStepIndex === 0 && nextStepIndex === 1) || (currentStepIndex === 1 && nextStepIndex === 2)) {
+                  lineColor = '#00a63e';
+                } else if (currentStepIndex === 2 && nextStepIndex === 3) {
+                  lineColor = '#dc2626';
+                }
+              }
             }
-          } else {
-            if (originalIndex < activeStepIndex) {
-              lineColor = '#00a63e';
+          } else if (activeStepIndex >= 0) {
+            if (isRTL) {
+              const nextDisplayIndex = displayIndex + 1;
+              const nextOriginalIndex = STEPS.length - 1 - nextDisplayIndex;
+              if (originalIndex <= activeStepIndex && nextOriginalIndex <= activeStepIndex) {
+                const nextStep = STEPS[nextOriginalIndex];
+                const nextStepDisputed = nextStep && nextStep.key === 'delivery_acceptance' && transactionStatus === 'disputed';
+                lineColor = (isDisputed || nextStepDisputed) ? '#dc2626' : '#00a63e';
+              }
+            } else {
+              if (originalIndex < activeStepIndex) {
+                const nextStep = STEPS[originalIndex + 1];
+                const nextStepDisputed = nextStep && nextStep.key === 'delivery_acceptance' && transactionStatus === 'disputed';
+                lineColor = (isDisputed || nextStepDisputed) ? '#dc2626' : '#00a63e';
+              }
             }
           }
         }
         
-        const textColor = isCurrent ? '#364153' : (isPending || isDisabled ? '#99a1af' : '#364153');
+        const textColor = isDisputed ? '#dc2626' : (isCurrent ? '#364153' : (isPending || isDisabled ? '#99a1af' : '#364153'));
 
         return (
           <View key={step.id} style={styles.stepContainer}>
             <View style={styles.stepContent}>
               <View style={styles.stepCircleContainer}>
-                {isCurrent && (
-                  <View style={[styles.chevronContainer, isRTL && styles.chevronContainerRTL]}>
-                    <ChevronDown size={16} color="#00a63e" style={isRTL && { transform: [{ scaleX: -1 }] }} />
+                {(isCurrent || isDisputed) && (
+                  <View style={styles.chevronContainer}>
+                    <ChevronDown 
+                      size={16} 
+                      color={isDisputed ? '#dc2626' : '#00a63e'} 
+                      style={isRTL ? { transform: [{ scaleX: -1 }] } : undefined} 
+                    />
                   </View>
                 )}
                 <View
                   style={[
                     styles.stepCircle,
                     {
-                      backgroundColor: isCompleted ? '#00a63e' : isCurrent ? '#ffffff' : '#d1d5dc',
-                      borderWidth: isCurrent ? 2 : 0,
-                      borderColor: isCurrent ? '#00a63e' : 'transparent',
+                      backgroundColor: isDisputed ? '#ffffff' : (isCompleted ? '#00a63e' : isCurrent ? '#ffffff' : '#d1d5dc'),
+                      borderWidth: (isCurrent && !isCompleted) || isDisputed ? 2 : 0,
+                      borderColor: isDisputed ? '#dc2626' : (isCurrent && !isCompleted ? '#00a63e' : 'transparent'),
                     },
                   ]}
                 >
@@ -125,7 +180,7 @@ export default function TransactionProgressBar({ status, isRTL = false }) {
                       style={[
                         styles.stepNumber,
                         {
-                          color: isCurrent ? '#00a63e' : '#ffffff',
+                          color: isDisputed ? '#dc2626' : (isCurrent ? '#00a63e' : '#ffffff'),
                         },
                       ]}
                     >
@@ -190,14 +245,16 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 8,
     position: 'relative',
+    overflow: 'visible',
   },
   chevronContainer: {
     position: 'absolute',
     top: -20,
-    zIndex: 1,
-  },
-  chevronContainerRTL: {
-    transform: [{ scaleX: -1 }],
+    zIndex: 10,
+    width: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   stepCircle: {
     width: 40,
@@ -243,4 +300,5 @@ const styles = StyleSheet.create({
     writingDirection: 'rtl',
   },
 });
+
 
