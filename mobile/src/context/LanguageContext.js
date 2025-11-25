@@ -175,6 +175,7 @@ const translations = {
     transactionCancelled: 'Transaction cancelled',
     disputeOpened: 'Dispute opened successfully',
     pleaseProvideDisputeReason: 'Please provide a dispute reason',
+    openDispute: 'Open Dispute',
     failedToOpenDispute: 'Failed to open dispute',
     failedToCancelTransaction: 'Failed to cancel transaction',
     failedToDeleteTransaction: 'Failed to delete transaction. Please try again.',
@@ -213,6 +214,7 @@ const translations = {
     readPrivacy: 'Read our privacy policy',
     logout: 'Logout',
     current: 'Current',
+    you: 'You',
   },
   ar: {
     // Getting Started
@@ -424,6 +426,7 @@ const translations = {
     readPrivacy: 'اقرأ سياسة الخصوصية',
     logout: 'تسجيل الخروج',
     current: 'الحالي',
+    you: 'أنت',
   },
 };
 

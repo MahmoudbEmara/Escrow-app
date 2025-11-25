@@ -9,8 +9,26 @@ import { LanguageContext } from '../../src/context/LanguageContext';
 
 export default function SettingsScreen() {
   const { signOut, state } = useContext(AuthContext);
-  const { t, isRTL, language, changeLanguage, getLanguageDisplayName } = useContext(LanguageContext);
+  const { t, isRTL, language, changeLanguage, getLanguageDisplayName, isLoading: languageLoading } = useContext(LanguageContext);
   const router = useRouter();
+
+  const safeT = (key, fallback = '') => {
+    try {
+      const result = t(key);
+      return result && typeof result === 'string' ? result : (fallback || key || '');
+    } catch (e) {
+      return fallback || key || '';
+    }
+  };
+
+  const safeGetLanguageDisplayName = (lang) => {
+    try {
+      const result = getLanguageDisplayName(lang);
+      return result && typeof result === 'string' ? result : (lang === 'ar' ? 'Arabic' : 'English');
+    } catch (e) {
+      return lang === 'ar' ? 'Arabic' : 'English';
+    }
+  };
 
   const [biometricLogin, setBiometricLogin] = useState(false);
   const [twoFactorAuth, setTwoFactorAuth] = useState(false);
@@ -38,25 +56,47 @@ export default function SettingsScreen() {
     );
   };
 
-  const SettingItem = ({ Icon, title, subtitle, onPress, rightComponent, showChevron = true }) => (
-    <TouchableOpacity
-      style={[styles.settingItem, isRTL && styles.settingItemRTL]}
-      onPress={onPress}
-      disabled={!onPress}
-      activeOpacity={0.7}
-    >
-      <View style={[styles.settingItemLeft, isRTL && styles.settingItemLeftRTL]}>
-        <View style={styles.settingIcon}>
-          {Icon ? <Icon size={20} color="#4b5563" /> : null} {/* w-5 h-5 text-gray-600 from Figma */}
+  const SettingItem = ({ Icon, title, subtitle, onPress, rightComponent, showChevron = true }) => {
+    const isValidReactElement = (element) => {
+      return element && typeof element !== 'string' && typeof element !== 'number' && typeof element !== 'boolean';
+    };
+
+    const safeTitle = title != null ? String(title) : '';
+    const safeSubtitle = subtitle != null && String(subtitle).trim() ? String(subtitle) : null;
+
+    return (
+      <TouchableOpacity
+        style={[styles.settingItem, isRTL && styles.settingItemRTL]}
+        onPress={onPress}
+        disabled={!onPress}
+        activeOpacity={0.7}
+      >
+        <View style={[styles.settingItemLeft, isRTL && styles.settingItemLeftRTL]}>
+          <View style={styles.settingIcon}>
+            {Icon ? <Icon size={20} color="#4b5563" /> : null}
+          </View>
+          <View style={styles.settingTextContainer}>
+            <Text style={[styles.settingTitle, isRTL && styles.textRTL]}>{safeTitle}</Text>
+            {safeSubtitle ? (
+              <Text style={[styles.settingSubtitle, isRTL && styles.textRTL]}>{safeSubtitle}</Text>
+            ) : null}
+          </View>
         </View>
-        <View style={styles.settingTextContainer}>
-          <Text style={[styles.settingTitle, isRTL && styles.textRTL]}>{title}</Text>
-          {subtitle ? <Text style={[styles.settingSubtitle, isRTL && styles.textRTL]}>{subtitle}</Text> : null}
+        {isValidReactElement(rightComponent) ? rightComponent : (showChevron ? <ChevronRight size={20} color="#9ca3af" /> : null)}
+      </TouchableOpacity>
+    );
+  };
+
+  if (languageLoading) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" />
+        <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+          <Text>Loading...</Text>
         </View>
       </View>
-      {rightComponent ? rightComponent : (showChevron ? <ChevronRight size={20} color="#9ca3af" /> : null)} {/* w-5 h-5 text-gray-400 from Figma */}
-    </TouchableOpacity>
-  );
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -68,7 +108,7 @@ export default function SettingsScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={[styles.title, isRTL && styles.textRTL]}>{t('settings')}</Text>
+          <Text style={[styles.title, isRTL && styles.textRTL]}>{safeT('settings', 'Settings')}</Text>
         </View>
 
         {/* User Profile Section */}
@@ -99,7 +139,7 @@ export default function SettingsScreen() {
                 Alert.alert(t('editProfile'), t('updatePersonalDetails'));
               }}
             >
-              <Text style={styles.editButtonText}>{t('editProfile')}</Text>
+              <Text style={styles.editButtonText}>{safeT('editProfile', 'Edit Profile')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -111,45 +151,45 @@ export default function SettingsScreen() {
             <View style={styles.sectionItems}>
               <SettingItem
                 Icon={User}
-                title={t('editProfile')}
-                subtitle={t('updatePersonalDetails')}
-                onPress={() => Alert.alert(t('editProfile'), t('updatePersonalDetails'))}
+                title={safeT('editProfile', 'Edit Profile')}
+                subtitle={safeT('updatePersonalDetails', 'Update Personal Details')}
+                onPress={() => Alert.alert(safeT('editProfile', 'Edit Profile'), safeT('updatePersonalDetails', 'Update Personal Details'))}
               />
               <SettingItem
                 Icon={Shield}
-                title={t('identityVerification')}
-                subtitle={`${t('status')}: ${t('verified')}`}
-                onPress={() => Alert.alert('KYC', `${t('status')}: ${t('verified')}`)}
+                title={safeT('identityVerification', 'Identity Verification')}
+                subtitle={`${safeT('status', 'Status')}: ${safeT('verified', 'Verified')}`}
+                onPress={() => Alert.alert('KYC', `${safeT('status', 'Status')}: ${safeT('verified', 'Verified')}`)}
                 rightComponent={
                   <View style={[styles.statusBadge, kycStatus === 'Verified' && styles.statusBadgeVerified]}>
                     <Text style={[styles.statusText, kycStatus === 'Verified' && styles.statusTextVerified]}>
-                      {t('verified')}
+                      {safeT('verified', 'Verified')}
                     </Text>
                   </View>
                 }
               />
               <SettingItem
                 Icon={Lock}
-                title={t('changePassword')}
-                subtitle={t('updatePassword')}
-                onPress={() => Alert.alert(t('changePassword'), t('updatePassword'))}
+                title={safeT('changePassword', 'Change Password')}
+                subtitle={safeT('updatePassword', 'Update Password')}
+                onPress={() => Alert.alert(safeT('changePassword', 'Change Password'), safeT('updatePassword', 'Update Password'))}
               />
               <SettingItem
                 Icon={Bell}
-                title={t('language')}
-                subtitle={`${t('current')}: ${getLanguageDisplayName(language)}`}
+                title={safeT('language', 'Language')}
+                subtitle={`${safeT('current', 'Current')}: ${safeGetLanguageDisplayName(language)}`}
                 onPress={() => {
                   const newLanguage = language === 'en' ? 'ar' : 'en';
                   changeLanguage(newLanguage);
                   Alert.alert(
-                    t('language'),
-                    `${t('language')} ${getLanguageDisplayName(newLanguage)}`,
+                    safeT('language', 'Language'),
+                    `${safeT('language', 'Language')} ${safeGetLanguageDisplayName(newLanguage)}`,
                     [{ text: 'OK' }]
                   );
                 }}
                 rightComponent={
                   <View style={styles.languageBadge}>
-                    <Text style={styles.languageText}>{getLanguageDisplayName(language)}</Text>
+                    <Text style={styles.languageText}>{safeGetLanguageDisplayName(language)}</Text>
                   </View>
                 }
               />
@@ -168,8 +208,8 @@ export default function SettingsScreen() {
                     <Lock size={20} color="#4b5563" />
                   </View>
                   <View style={styles.settingTextContainer}>
-                    <Text style={[styles.settingTitle, isRTL && styles.textRTL]}>{t('biometricLogin')}</Text>
-                    <Text style={[styles.settingSubtitle, isRTL && styles.textRTL]}>{t('useFingerprint')}</Text>
+                    <Text style={[styles.settingTitle, isRTL && styles.textRTL]}>{safeT('biometricLogin', 'Biometric Login')}</Text>
+                    <Text style={[styles.settingSubtitle, isRTL && styles.textRTL]}>{safeT('useFingerprint', 'Use Fingerprint')}</Text>
                   </View>
                 </View>
                 <Switch
@@ -185,8 +225,8 @@ export default function SettingsScreen() {
                     <Shield size={20} color="#4b5563" />
                   </View>
                   <View style={styles.settingTextContainer}>
-                    <Text style={[styles.settingTitle, isRTL && styles.textRTL]}>{t('twoFactorAuth')}</Text>
-                    <Text style={[styles.settingSubtitle, isRTL && styles.textRTL]}>{t('extraSecurity')}</Text>
+                    <Text style={[styles.settingTitle, isRTL && styles.textRTL]}>{safeT('twoFactorAuth', 'Two Factor Auth')}</Text>
+                    <Text style={[styles.settingSubtitle, isRTL && styles.textRTL]}>{safeT('extraSecurity', 'Extra Security')}</Text>
                   </View>
                 </View>
                 <Switch
@@ -211,8 +251,8 @@ export default function SettingsScreen() {
                     <Bell size={20} color="#4b5563" /> {/* w-5 h-5 text-gray-600 from Figma */}
                   </View>
                   <View style={styles.settingTextContainer}>
-                    <Text style={[styles.settingTitle, isRTL && styles.textRTL]}>{t('pushNotifications')}</Text>
-                    <Text style={[styles.settingSubtitle, isRTL && styles.textRTL]}>{t('receiveNotifications')}</Text>
+                    <Text style={[styles.settingTitle, isRTL && styles.textRTL]}>{safeT('pushNotifications', 'Push Notifications')}</Text>
+                    <Text style={[styles.settingSubtitle, isRTL && styles.textRTL]}>{safeT('receiveNotifications', 'Receive Notifications')}</Text>
                   </View>
                 </View>
                 <Switch
@@ -233,15 +273,15 @@ export default function SettingsScreen() {
             <View style={styles.sectionItems}>
               <SettingItem
                 Icon={HelpCircle}
-                title={t('helpCenter')}
-                subtitle={t('getHelp')}
-                onPress={() => Alert.alert(t('helpCenter'), t('getHelp'))}
+                title={safeT('helpCenter', 'Help Center')}
+                subtitle={safeT('getHelp', 'Get Help')}
+                onPress={() => Alert.alert(safeT('helpCenter', 'Help Center'), safeT('getHelp', 'Get Help'))}
               />
               <SettingItem
                 Icon={Bell}
-                title={t('contactSupport')}
-                subtitle={t('getInTouch')}
-                onPress={() => Alert.alert(t('contactSupport'), t('getInTouch'))}
+                title={safeT('contactSupport', 'Contact Support')}
+                subtitle={safeT('getInTouch', 'Get In Touch')}
+                onPress={() => Alert.alert(safeT('contactSupport', 'Contact Support'), safeT('getInTouch', 'Get In Touch'))}
               />
             </View>
           </View>
@@ -254,15 +294,15 @@ export default function SettingsScreen() {
             <View style={styles.sectionItems}>
               <SettingItem
                 Icon={FileText}
-                title={t('termsConditions')}
-                subtitle={t('readTerms')}
-                onPress={() => Alert.alert(t('termsConditions'), t('readTerms'))}
+                title={safeT('termsConditions', 'Terms & Conditions')}
+                subtitle={safeT('readTerms', 'Read Terms')}
+                onPress={() => Alert.alert(safeT('termsConditions', 'Terms & Conditions'), safeT('readTerms', 'Read Terms'))}
               />
               <SettingItem
                 Icon={Shield}
-                title={t('privacyPolicy')}
-                subtitle={t('readPrivacy')}
-                onPress={() => Alert.alert(t('privacyPolicy'), t('readPrivacy'))}
+                title={safeT('privacyPolicy', 'Privacy Policy')}
+                subtitle={safeT('readPrivacy', 'Read Privacy')}
+                onPress={() => Alert.alert(safeT('privacyPolicy', 'Privacy Policy'), safeT('readPrivacy', 'Read Privacy'))}
               />
             </View>
           </View>
@@ -272,7 +312,7 @@ export default function SettingsScreen() {
         <View style={styles.logoutSection}>
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout} activeOpacity={0.8}>
             <LogOut size={20} color="#dc2626" />
-            <Text style={styles.logoutButtonText}>{t('logout')}</Text>
+            <Text style={styles.logoutButtonText}>{safeT('logout', 'Logout')}</Text>
           </TouchableOpacity>
         </View>
 

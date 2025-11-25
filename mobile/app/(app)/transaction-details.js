@@ -2,6 +2,7 @@ import React, { useState, useContext, useEffect, useRef, useCallback } from 'rea
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
+import { CircleCheckBig, AlertTriangle, MessageCircle, CircleCheck, X, CircleX } from 'lucide-react-native';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as TransactionService from '../../src/services/transactionService';
@@ -147,9 +148,8 @@ export default function TransactionDetailsScreen() {
           amount: parseFloat(txn.amount || 0),
           role: userRole,
           terms: termsArray,
-          // Explicitly preserve initiated_by
+          fees_responsibility: txn.fees_responsibility,
           initiated_by: txn.initiated_by,
-          // Preserve stateInfo and add calculated values
           stateInfo: {
             ...stateInfo,
             isBuyer: userRole === 'Buyer',
@@ -515,23 +515,17 @@ export default function TransactionDetailsScreen() {
           <TouchableOpacity onPress={() => router.push('/(app)/home')} style={styles.backButton}>
             <Text style={[styles.backIcon, isRTL && styles.backIconRTL]}>{isRTL ? '→' : '←'}</Text>
           </TouchableOpacity>
-          <Text style={[styles.headerTitle, isRTL && styles.textRTL]}>{t('transactionDetails') || 'Transaction Details'}</Text>
-          <View style={styles.placeholder} />
-        </View>
-
-        {/* Status and Role Tags */}
-        <View style={[styles.tagsContainer, isRTL && styles.tagsContainerRTL]}>
-          <View style={[styles.statusTag, { backgroundColor: statusColors.bg }]}>
-            <Text style={[styles.statusTagText, { color: statusColors.text }]}>
-              {statusDisplayName}
-            </Text>
+          <View style={styles.headerTitleContainer}>
+            <Text style={[styles.headerTitle, isRTL && styles.textRTL]}>{t('transactionDetails') || 'Transaction Details'}</Text>
           </View>
-          {userRole && (
+          {userRole ? (
             <View style={[styles.roleTag, { backgroundColor: roleColors.bg }]}>
               <Text style={[styles.roleTagText, { color: roleColors.text }]}>
                 {userRole}
               </Text>
             </View>
+          ) : (
+            <View style={styles.placeholder} />
           )}
         </View>
 
@@ -540,66 +534,92 @@ export default function TransactionDetailsScreen() {
 
         {/* Transaction Info Card */}
         <View style={styles.infoCard}>
-          <Text style={styles.transactionTitle}>{transaction.title}</Text>
+          <Text style={styles.sectionTitle}>Transaction Information</Text>
           
-          <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
-            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('transactionId')}:</Text>
-            <Text style={[styles.infoValue, isRTL && styles.textRTL]}>{transaction.id}</Text>
-          </View>
+          <View style={styles.infoRowsContainer}>
+            {/* Status */}
+            <View style={[styles.infoRowWithBorder, isRTL && styles.infoRowRTL]}>
+              <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('status') || 'Status'}</Text>
+              <View style={[styles.statusBadgeInline, { backgroundColor: statusColors.bg }]}>
+                <Text style={[styles.statusBadgeTextInline, { color: statusColors.text }]}>
+                  {statusDisplayName}
+                </Text>
+              </View>
+            </View>
 
-          <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
-            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('startDate')}:</Text>
-            <Text style={[styles.infoValue, isRTL && styles.textRTL]}>{transaction.startDate}</Text>
-          </View>
-
-          <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
-            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('deliveryDate')}:</Text>
-            <Text style={[styles.infoValue, isRTL && styles.textRTL]}>{transaction.deliveryDate}</Text>
-          </View>
-
-          <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
-            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('category')}:</Text>
-            <Text style={[styles.infoValue, isRTL && styles.textRTL]}>{transaction.category}</Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          {/* Show only the other party (not the current user) */}
-          <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
-            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>
-              {userRole === 'Buyer' ? `${t('seller')}:` : `${t('buyer')}:`}
-            </Text>
-            <Text style={[styles.infoValue, isRTL && styles.textRTL]}>
-              {userRole === 'Buyer' 
-                ? (transaction.seller || maskUserId(transaction.seller_id))
-                : (transaction.buyer || maskUserId(transaction.buyer_id))
-              }
-            </Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
-            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('amount')}:</Text>
-            <Text style={[styles.amountValue, isRTL && styles.textRTL]}>{transaction.amount.toFixed(2)} EGP</Text>
-          </View>
-
-          <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
-            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('feesPaidBy')}:</Text>
-            <Text style={[styles.infoValue, isRTL && styles.textRTL]}>{transaction.feesResponsibility}</Text>
-          </View>
-
-          <View style={styles.divider} />
-
-          <View style={styles.termsSection}>
-            <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('terms')}:</Text>
-            {transaction.terms && Array.isArray(transaction.terms) && transaction.terms.length > 0 ? (
-              transaction.terms.map((term, index) => (
-                <Text key={index} style={[styles.termItem, isRTL && styles.textRTL]}>• {term}</Text>
-              ))
-            ) : (
-              <Text style={[styles.termItem, isRTL && styles.textRTL]}>{t('noTermsSpecified')}</Text>
+            {/* Buyer - only show if user is not the buyer */}
+            {userRole !== 'Buyer' && (
+              <View style={[styles.infoRowWithBorder, isRTL && styles.infoRowRTL]}>
+                <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('buyer') || 'Buyer'}</Text>
+                <Text style={[styles.infoValue, isRTL && styles.textRTL]}>
+                  {transaction.buyer || maskUserId(transaction.buyer_id)}
+                </Text>
+              </View>
             )}
+
+            {/* Seller - only show if user is not the seller */}
+            {userRole !== 'Seller' && (
+              <View style={[styles.infoRowWithBorder, isRTL && styles.infoRowRTL]}>
+                <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('seller') || 'Seller'}</Text>
+                <Text style={[styles.infoValue, isRTL && styles.textRTL]}>
+                  {transaction.seller 
+                    ? `${transaction.seller} (${maskUserId(transaction.seller_id)})` 
+                    : maskUserId(transaction.seller_id)}
+                </Text>
+              </View>
+            )}
+
+            {/* Category */}
+            <View style={[styles.infoRowWithBorder, isRTL && styles.infoRowRTL]}>
+              <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('category') || 'Category'}</Text>
+              <Text style={[styles.infoValue, isRTL && styles.textRTL]}>{transaction.category || 'N/A'}</Text>
+            </View>
+
+            {/* Start Date */}
+            <View style={[styles.infoRowWithBorder, isRTL && styles.infoRowRTL]}>
+              <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('startDate') || 'Start Date'}</Text>
+              <Text style={[styles.infoValue, isRTL && styles.textRTL]}>{transaction.startDate || 'N/A'}</Text>
+            </View>
+
+            {/* Delivery Date */}
+            <View style={[styles.infoRowWithBorder, isRTL && styles.infoRowRTL]}>
+              <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('deliveryDate') || 'Delivery Date'}</Text>
+              <Text style={[styles.infoValue, isRTL && styles.textRTL]}>{transaction.deliveryDate || transaction.delivery_date || '-'}</Text>
+            </View>
+
+            {/* Fees Paid By */}
+            <View style={[styles.infoRow, isRTL && styles.infoRowRTL]}>
+              <Text style={[styles.infoLabel, isRTL && styles.textRTL]}>{t('feesPaidBy') || 'Fees Paid By'}</Text>
+              <Text style={[styles.infoValue, isRTL && styles.textRTL]}>{transaction.fees_responsibility || 'N/A'}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Terms & Conditions */}
+        <View style={styles.termsCard}>
+          <Text style={[styles.termsTitle, isRTL && styles.textRTL]}>{t('termsConditions') || 'Terms & Conditions'}</Text>
+          <View style={styles.termsList}>
+            {(() => {
+              let termsArray = [];
+              if (transaction.terms) {
+                if (Array.isArray(transaction.terms)) {
+                  termsArray = transaction.terms;
+                } else if (typeof transaction.terms === 'string') {
+                  termsArray = transaction.terms.split('\n').filter(term => term.trim() !== '');
+                }
+              }
+              
+              return termsArray.length > 0 ? (
+                termsArray.map((term, index) => (
+                  <View key={index} style={[styles.termItem, isRTL && styles.termItemRTL]}>
+                    <Text style={styles.termBullet}>•</Text>
+                    <Text style={[styles.termText, isRTL && styles.textRTL]}>{term}</Text>
+                  </View>
+                ))
+              ) : (
+                <Text style={[styles.noTermsText, isRTL && styles.textRTL]}>{t('noTermsSpecified') || 'No terms specified'}</Text>
+              );
+            })()}
           </View>
         </View>
 
@@ -622,15 +642,16 @@ export default function TransactionDetailsScreen() {
             
             if (showAcceptReject) {
               return (
-                <View style={styles.acceptRejectContainer}>
+                <View style={[styles.acceptRejectContainer, isRTL && styles.acceptRejectContainerRTL]}>
                   <TouchableOpacity
-                    style={styles.acceptButton}
+                    style={[styles.acceptButton, isRTL && styles.acceptButtonRTL]}
                     onPress={() => handleStateTransition('accept', TransactionState.ACCEPTED)}
                   >
-                    <Text style={styles.acceptButtonText}>✓ {t('accept') || 'Accept Transaction'}</Text>
+                    <CircleCheck size={20} color="#ffffff" strokeWidth={2} />
+                    <Text style={styles.acceptButtonText}>{t('accept') || 'Accept'}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={styles.rejectButton}
+                    style={[styles.rejectButton, isRTL && styles.rejectButtonRTL]}
                     onPress={() => {
                       Alert.alert(
                         t('rejectTransaction'),
@@ -646,7 +667,8 @@ export default function TransactionDetailsScreen() {
                       );
                     }}
                   >
-                    <Text style={styles.rejectButtonText}>✕ {t('reject') || 'Reject Transaction'}</Text>
+                    <X size={20} color="#ffffff" strokeWidth={2} />
+                    <Text style={styles.rejectButtonText}>{t('reject') || 'Reject'}</Text>
                   </TouchableOpacity>
                 </View>
               );
@@ -667,9 +689,9 @@ export default function TransactionDetailsScreen() {
             
             if (showCancel) {
               return (
-                <View style={styles.acceptRejectContainer}>
+                <View style={[styles.acceptRejectContainer, isRTL && styles.acceptRejectContainerRTL]}>
                   <TouchableOpacity
-                    style={styles.rejectButton}
+                    style={[styles.rejectButton, isRTL && styles.rejectButtonRTL]}
                     onPress={() => {
                       Alert.alert(
                         t('cancelTransaction'),
@@ -685,7 +707,8 @@ export default function TransactionDetailsScreen() {
                       );
                     }}
                   >
-                    <Text style={styles.rejectButtonText}>✕ {t('cancel') || 'Cancel Transaction'}</Text>
+                    <CircleX size={20} color="#ffffff" strokeWidth={2} />
+                    <Text style={styles.rejectButtonText}>{t('cancel') || 'Cancel'}</Text>
                   </TouchableOpacity>
                 </View>
               );
@@ -700,15 +723,15 @@ export default function TransactionDetailsScreen() {
             
             if (showFundCancel) {
               return (
-                <View style={styles.acceptRejectContainer}>
+                <View style={[styles.acceptRejectContainer, isRTL && styles.acceptRejectContainerRTL]}>
                   <TouchableOpacity
-                    style={styles.acceptButton}
+                    style={[styles.acceptButton, isRTL && styles.acceptButtonRTL]}
                     onPress={() => handleStateTransition('fund', state)}
                   >
                     <Text style={styles.acceptButtonText}>💰 {t('fundTransaction') || 'Fund Transaction'}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={styles.rejectButton}
+                    style={[styles.rejectButton, isRTL && styles.rejectButtonRTL]}
                     onPress={() => {
                       Alert.alert(
                         t('cancelTransaction'),
@@ -724,31 +747,14 @@ export default function TransactionDetailsScreen() {
                       );
                     }}
                   >
-                    <Text style={styles.rejectButtonText}>✕ {t('cancel') || 'Cancel Transaction'}</Text>
+                    <CircleX size={20} color="#ffffff" strokeWidth={2} />
+                    <Text style={styles.rejectButtonText}>{t('cancel') || 'Cancel'}</Text>
                   </TouchableOpacity>
                 </View>
               );
             }
             return null;
           })()}
-
-          <TouchableOpacity
-            style={styles.messageButton}
-            onPress={() => router.push(`/(app)/chat?transactionId=${transaction.id}&chatId=CHAT${transaction.id}`)}
-          >
-            <Text style={styles.messageButtonIcon}>💬</Text>
-            <Text style={styles.messageButtonText}>{t('message') || 'Message'}</Text>
-          </TouchableOpacity>
-
-          {/* Delete button - only show for cancelled transactions */}
-          {(currentState === TransactionState.CANCELLED || statusLower === 'cancelled' || statusLower === 'canceled') && (
-            <TouchableOpacity
-              style={styles.deleteButton}
-              onPress={handleDeleteTransaction}
-            >
-              <Text style={styles.deleteButtonText}>🗑️ {t('delete') || 'Delete Transaction'}</Text>
-            </TouchableOpacity>
-          )}
 
           {/* Dynamic action buttons based on state machine - hide if we already showed accept/reject, cancel (initiator), or fund/cancel */}
           {(() => {
@@ -772,28 +778,113 @@ export default function TransactionDetailsScreen() {
               return true;
             });
             
-            return filteredActions.map((actionItem, index) => (
-              <TouchableOpacity
-                key={index}
-                style={
-                  actionItem.action === 'dispute' || actionItem.action === 'cancel'
-                    ? styles.disputeButton
-                    : styles.confirmButton
-                }
-                onPress={() => handleStateTransition(actionItem.action, state)}
-              >
-                <Text
-                  style={
-                    actionItem.action === 'dispute' || actionItem.action === 'cancel'
-                      ? styles.disputeButtonText
-                      : styles.confirmButtonText
+            // Check if we have both "complete" and "dispute" actions (for delivered state)
+            const completeAction = filteredActions.find(a => a.action === 'complete');
+            const disputeAction = filteredActions.find(a => a.action === 'dispute');
+            const otherActions = filteredActions.filter(a => a.action !== 'complete' && a.action !== 'dispute');
+            
+            return (
+              <>
+                {/* Special styling for Complete and Dispute buttons when both are present */}
+                {completeAction && disputeAction && (
+                  <View style={[styles.deliveryActionsContainer, isRTL && styles.deliveryActionsContainerRTL]}>
+                    <TouchableOpacity
+                      style={[styles.confirmDeliveryButton, isRTL && styles.confirmDeliveryButtonRTL]}
+                      onPress={() => handleStateTransition('complete', TransactionState.COMPLETED)}
+                    >
+                      <CircleCheckBig size={20} color="#ffffff" strokeWidth={2} />
+                      <Text style={styles.confirmDeliveryButtonText}>
+                        {t('confirmDelivery') || 'Confirm Delivery'}
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.openDisputeButton, isRTL && styles.openDisputeButtonRTL]}
+                      onPress={() => {
+                        Alert.prompt(
+                          t('openDispute'),
+                          t('pleaseProvideDisputeReason'),
+                          [
+                            { text: t('cancel'), style: 'cancel' },
+                            {
+                              text: t('submit'),
+                              onPress: async (reason) => {
+                                if (!reason) {
+                                  Alert.alert(t('error'), t('pleaseProvideDisputeReason'));
+                                  return;
+                                }
+                                const disputeResult = await TransactionService.disputeTransaction(transaction.id, state.user.id, reason);
+                                if (disputeResult.success) {
+                                  Alert.alert(t('success'), t('disputeOpened'));
+                                  router.push('/(app)/home');
+                                } else {
+                                  Alert.alert(t('error'), disputeResult.error || t('failedToOpenDispute'));
+                                }
+                              },
+                            },
+                          ],
+                          'plain-text'
+                        );
+                      }}
+                    >
+                      <AlertTriangle size={20} color="#ffffff" />
+                      <Text style={styles.openDisputeButtonText}>
+                        {t('openDispute') || 'Open Dispute'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                
+                {/* Render other actions (if complete/dispute are separate) */}
+                {otherActions.map((actionItem, index) => {
+                  // Skip if we already rendered complete/dispute together
+                  if (completeAction && disputeAction && (actionItem.action === 'complete' || actionItem.action === 'dispute')) {
+                    return null;
                   }
-                >
-                  {actionItem.label}
-                </Text>
-              </TouchableOpacity>
-            ));
+                  
+                  return (
+                    <TouchableOpacity
+                      key={index}
+                      style={
+                        actionItem.action === 'dispute' || actionItem.action === 'cancel'
+                          ? styles.disputeButton
+                          : styles.confirmButton
+                      }
+                      onPress={() => handleStateTransition(actionItem.action, state)}
+                    >
+                      <Text
+                        style={
+                          actionItem.action === 'dispute' || actionItem.action === 'cancel'
+                            ? styles.disputeButtonText
+                            : styles.confirmButtonText
+                        }
+                      >
+                        {actionItem.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </>
+            );
           })()}
+
+          {/* Delete button - only show for cancelled transactions */}
+          {(currentState === TransactionState.CANCELLED || statusLower === 'cancelled' || statusLower === 'canceled') && (
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={handleDeleteTransaction}
+            >
+              <Text style={styles.deleteButtonText}>🗑️ {t('delete') || 'Delete Transaction'}</Text>
+            </TouchableOpacity>
+          )}
+
+          {/* Message button - always at the bottom */}
+          <TouchableOpacity
+            style={[styles.messageButton, isRTL && styles.messageButtonRTL]}
+            onPress={() => router.push(`/(app)/chat?transactionId=${transaction.id}&chatId=CHAT${transaction.id}`)}
+          >
+            <MessageCircle size={20} color="#ffffff" />
+            <Text style={styles.messageButtonText}>{t('message') || 'Message'}</Text>
+          </TouchableOpacity>
         </View>
       </ScrollView>
     </View>
@@ -832,11 +923,15 @@ const styles = StyleSheet.create({
   backIconRTL: {
     transform: [{ scaleX: -1 }],
   },
+  headerTitleContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#0f172a',
-    flex: 1,
     textAlign: 'center',
   },
   textRTL: {
@@ -875,35 +970,64 @@ const styles = StyleSheet.create({
   infoCard: {
     marginHorizontal: 20,
     marginBottom: 24,
-    padding: 20,
-    borderRadius: 12,
-    backgroundColor: '#f8fafc',
+    padding: 25,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#e5e7eb',
   },
-  transactionTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#0f172a',
-    marginBottom: 20,
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#101828',
+    marginBottom: 16,
+    lineHeight: 24,
+  },
+  infoRowsContainer: {
+    gap: 0,
   },
   infoRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    alignItems: 'center',
+    paddingTop: 12,
+    paddingBottom: 12,
+    minHeight: 48,
+  },
+  infoRowWithBorder: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#f3f4f6',
+    minHeight: 48,
   },
   infoRowRTL: {
     flexDirection: 'row-reverse',
   },
   infoLabel: {
     fontSize: 16,
-    color: '#64748b',
-    fontWeight: '500',
+    color: '#4a5565',
+    fontWeight: 'normal',
+    lineHeight: 24,
   },
   infoValue: {
     fontSize: 16,
-    color: '#0f172a',
-    fontWeight: '600',
+    color: '#101828',
+    fontWeight: 'normal',
+    lineHeight: 24,
+  },
+  statusBadgeInline: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 100,
+  },
+  statusBadgeTextInline: {
+    fontSize: 12,
+    fontWeight: 'normal',
+    lineHeight: 16,
   },
   amountValue: {
     fontSize: 20,
@@ -915,15 +1039,57 @@ const styles = StyleSheet.create({
     backgroundColor: '#e2e8f0',
     marginVertical: 16,
   },
-  termsSection: {
-    marginTop: 8,
+  termsCard: {
+    marginHorizontal: 20,
+    marginBottom: 24,
+    paddingHorizontal: 25,
+    paddingTop: 25,
+    paddingBottom: 25,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+  },
+  termsTitle: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#101828',
+    marginBottom: 16,
+    fontFamily: 'Arimo',
+    lineHeight: 24,
+  },
+  termsList: {
+    gap: 8,
   },
   termItem: {
-    fontSize: 14,
-    color: '#0f172a',
-    marginTop: 8,
-    marginLeft: 8,
-    lineHeight: 20,
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'flex-start',
+    minHeight: 24,
+  },
+  termItemRTL: {
+    flexDirection: 'row-reverse',
+  },
+  termBullet: {
+    fontSize: 16,
+    color: '#155dfc',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+    width: 6.5,
+  },
+  termText: {
+    fontSize: 16,
+    color: '#364153',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+    fontWeight: 'normal',
+    flex: 1,
+  },
+  noTermsText: {
+    fontSize: 16,
+    color: '#64748b',
+    fontFamily: 'Arimo',
+    lineHeight: 24,
   },
   actionsContainer: {
     paddingHorizontal: 20,
@@ -958,19 +1124,22 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 16,
-    borderRadius: 12,
-    backgroundColor: '#3b82f6',
-    marginBottom: 12,
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: '#155dfc',
+    gap: 8,
+    paddingHorizontal: 24,
+    marginTop: 0,
   },
-  messageButtonIcon: {
-    fontSize: 20,
-    marginRight: 8,
+  messageButtonRTL: {
+    flexDirection: 'row-reverse',
   },
   messageButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: 'normal',
     color: '#ffffff',
+    fontFamily: 'Arimo',
+    lineHeight: 24,
   },
   deleteButton: {
     paddingVertical: 16,
@@ -979,7 +1148,6 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#ef4444',
     alignItems: 'center',
-    marginTop: 12,
   },
   deleteButtonText: {
     fontSize: 18,
@@ -999,40 +1167,101 @@ const styles = StyleSheet.create({
   acceptRejectContainer: {
     flexDirection: 'row',
     gap: 12,
-    marginBottom: 16,
+  },
+  acceptRejectContainerRTL: {
+    flexDirection: 'row-reverse',
   },
   acceptButton: {
     flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
-    backgroundColor: '#10b981',
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: '#00a63e',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#10b981',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 3,
+    gap: 8,
+    paddingHorizontal: 24,
+  },
+  acceptButtonRTL: {
+    flexDirection: 'row-reverse',
   },
   acceptButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: 'normal',
     color: '#ffffff',
+    fontFamily: 'Arimo',
+    lineHeight: 24,
   },
   rejectButton: {
     flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
-    backgroundColor: '#ffffff',
-    borderWidth: 2,
-    borderColor: '#ef4444',
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: '#e7000b',
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 24,
+  },
+  rejectButtonRTL: {
+    flexDirection: 'row-reverse',
   },
   rejectButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#ef4444',
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#ffffff',
+    fontFamily: 'Arimo',
+    lineHeight: 24,
+  },
+  deliveryActionsContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 0,
+  },
+  deliveryActionsContainerRTL: {
+    flexDirection: 'row-reverse',
+  },
+  confirmDeliveryButton: {
+    flex: 1,
+    height: 56,
+    backgroundColor: '#00a63e',
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 24,
+  },
+  confirmDeliveryButtonRTL: {
+    flexDirection: 'row-reverse',
+  },
+  confirmDeliveryButtonText: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#ffffff',
+    fontFamily: 'Arimo',
+    lineHeight: 24,
+  },
+  openDisputeButton: {
+    flex: 1,
+    height: 56,
+    backgroundColor: '#e7000b',
+    borderRadius: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 24,
+  },
+  openDisputeButtonRTL: {
+    flexDirection: 'row-reverse',
+  },
+  openDisputeButtonText: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#ffffff',
+    fontFamily: 'Arimo',
+    lineHeight: 24,
   },
 });
 
