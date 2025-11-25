@@ -6,6 +6,7 @@ import { Search } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
+import { getStateColors, getStateDisplayName } from '../../src/constants/transactionStates';
 import * as DatabaseService from '../../src/services/databaseService';
 import { supabase } from '../../src/lib/supabase';
 
@@ -145,18 +146,6 @@ export default function MessagesScreen() {
     };
   }, [state.user?.id, fetchChats]);
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'Completed':
-        return { bg: '#d1fae5', text: '#065f46' };
-      case 'In Progress':
-        return { bg: '#dbeafe', text: '#1e40af' };
-      case 'In Dispute':
-        return { bg: '#fee2e2', text: '#991b1b' };
-      default:
-        return { bg: '#f3f4f6', text: '#374151' };
-    }
-  };
 
   if (loading) {
     return (
@@ -264,9 +253,9 @@ export default function MessagesScreen() {
                         <Text style={[styles.chatTitle, isRTL && styles.textRTL]} numberOfLines={1}>
                           {chat.transactionTitle}
                         </Text>
-                        <View style={[styles.statusBadge, { backgroundColor: getStatusColor(chat.status).bg }]}>
-                          <Text style={[styles.statusBadgeText, { color: getStatusColor(chat.status).text }]}>
-                            {chat.status}
+                        <View style={[styles.statusBadge, { backgroundColor: getStateColors(chat.status).bg }]}>
+                          <Text style={[styles.statusBadgeText, { color: getStateColors(chat.status).text }]}>
+                            {getStateDisplayName(chat.status)}
                           </Text>
                         </View>
                       </View>
@@ -480,13 +469,14 @@ const styles = StyleSheet.create({
     color: '#0f172a', // text-gray-900 from Figma
   },
   statusBadge: {
-    paddingHorizontal: 8, // px-2 from Figma
-    paddingVertical: 4, // py-1 from Figma
-    borderRadius: 9999, // rounded-full from Figma (pill shape)
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 100,
   },
   statusBadgeText: {
-    fontSize: 12, // text-xs from Figma
-    fontWeight: '600', // font-medium from Figma
+    fontSize: 12,
+    fontWeight: 'normal',
+    lineHeight: 16,
   },
   chatName: {
     fontSize: 14, // text-sm from Figma

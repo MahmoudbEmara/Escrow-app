@@ -3,8 +3,10 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Keyboa
 import { StatusBar } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import { MessageCircle, Send, MoreVertical } from 'lucide-react-native';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
+import { getStateColors, getStateDisplayName } from '../../src/constants/transactionStates';
 import * as DatabaseService from '../../src/services/databaseService';
 
 export default function ChatScreen() {
@@ -50,6 +52,7 @@ export default function ChatScreen() {
         transactionTitle: txn.title,
         otherParty: otherPartyName,
         otherPartyId: otherPartyId,
+        transactionStatus: txn.status,
       });
 
       // Fetch messages
@@ -237,15 +240,49 @@ export default function ChatScreen() {
         <TouchableOpacity onPress={() => router.push('/(app)/messages')} style={styles.backButton}>
           <Text style={[styles.backIcon, isRTL && styles.backIconRTL]}>{isRTL ? '→' : '←'}</Text>
         </TouchableOpacity>
-        <View style={styles.headerInfo}>
-          <Text style={[styles.headerTitle, isRTL && styles.textRTL]} numberOfLines={1}>
-            {chatInfo.transactionTitle}
-          </Text>
-          <Text style={[styles.headerSubtitle, isRTL && styles.textRTL]}>
-            {chatInfo.otherParty}
-          </Text>
-        </View>
-        <View style={styles.placeholder} />
+        {(() => {
+          const getInitials = (name) => {
+            if (!name) return 'U';
+            const parts = name.trim().split(' ');
+            if (parts.length >= 2) {
+              return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+            }
+            return name.substring(0, 2).toUpperCase();
+          };
+          
+          const statusColors = chatInfo.transactionStatus ? getStateColors(chatInfo.transactionStatus) : { bg: '#dbeafe', text: '#1e40af' };
+          const statusDisplayName = chatInfo.transactionStatus ? getStateDisplayName(chatInfo.transactionStatus) : 'Pending';
+          const initials = getInitials(chatInfo.otherParty);
+          
+          return (
+            <>
+              <View style={[styles.profileContainer, isRTL && styles.profileContainerRTL]}>
+                <View style={styles.profilePicture}>
+                  <Text style={styles.profileInitials}>{initials}</Text>
+                </View>
+                <View style={styles.onlineIndicator} />
+              </View>
+              <View style={[styles.headerInfo, isRTL && styles.headerInfoRTL]}>
+                <View style={[styles.headerTitleRow, isRTL && styles.headerTitleRowRTL]}>
+                  <Text style={[styles.headerTitle, isRTL && styles.textRTL]} numberOfLines={1}>
+                    {chatInfo.transactionTitle}
+                  </Text>
+                  <View style={[styles.statusBadge, { backgroundColor: statusColors.bg }]}>
+                    <Text style={[styles.statusBadgeText, { color: statusColors.text }]}>
+                      {statusDisplayName}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={[styles.headerSubtitle, isRTL && styles.textRTL]}>
+                  {chatInfo.otherParty}
+                </Text>
+              </View>
+              <TouchableOpacity style={styles.menuButton}>
+                <MoreVertical size={20} color="#6a7282" />
+              </TouchableOpacity>
+            </>
+          );
+        })()}
       </View>
 
       <KeyboardAvoidingView
@@ -257,18 +294,20 @@ export default function ChatScreen() {
         <ScrollView
           ref={scrollViewRef}
           style={styles.messagesContainer}
-          contentContainerStyle={styles.messagesContent}
+          contentContainerStyle={messages.length === 0 ? styles.messagesContentEmpty : styles.messagesContent}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
           {messages.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyStateIcon}>💬</Text>
+              <View style={styles.emptyStateIconContainer}>
+                <MessageCircle size={32} color="#9CA3AF" />
+              </View>
               <Text style={[styles.emptyStateText, isRTL && styles.textRTL]}>
                 {t('noMessages') || 'No messages yet'}
               </Text>
               <Text style={[styles.emptyStateSubtext, isRTL && styles.textRTL]}>
-                {t('startConversation') || 'Start the conversation by sending a message.'}
+                {chatInfo ? `Start the conversation with ${chatInfo.otherParty} about ${chatInfo.transactionTitle}` : (t('startConversation') || 'Start the conversation by sending a message.')}
               </Text>
             </View>
           ) : (
@@ -350,7 +389,7 @@ export default function ChatScreen() {
             value={message}
             onChangeText={setMessage}
             placeholder={t('typeMessage') || 'Type a message...'}
-            placeholderTextColor="#94a3b8"
+            placeholderTextColor="rgba(10, 10, 10, 0.5)"
             multiline
             textAlign={isRTL ? 'right' : 'left'}
             returnKeyType="send"
@@ -366,7 +405,7 @@ export default function ChatScreen() {
             {sending ? (
               <ActivityIndicator size="small" color="#ffffff" />
             ) : (
-              <Text style={styles.sendButtonText}>→</Text>
+              <Send size={20} color="#ffffff" />
             )}
           </TouchableOpacity>
         </View>
@@ -378,21 +417,21 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#f9fafb',
   },
   container: {
     flex: 1,
-    backgroundColor: '#f8fafc',
+    backgroundColor: '#f9fafb',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#ffffff',
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingTop: Platform.OS === 'ios' ? 60 : 30,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#e2e8f0',
+    borderBottomColor: '#e5e7eb',
   },
   headerRTL: {
     flexDirection: 'row-reverse',
@@ -410,22 +449,83 @@ const styles = StyleSheet.create({
   backIconRTL: {
     transform: [{ scaleX: -1 }],
   },
+  profileContainer: {
+    position: 'relative',
+    marginRight: 12,
+  },
+  profileContainerRTL: {
+    marginRight: 0,
+    marginLeft: 12,
+  },
+  profilePicture: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#7c3aed',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileInitials: {
+    fontSize: 14,
+    fontWeight: 'normal',
+    color: '#ffffff',
+    fontFamily: 'Arimo',
+  },
+  onlineIndicator: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: '#00c950',
+    borderWidth: 2,
+    borderColor: '#ffffff',
+  },
   headerInfo: {
     flex: 1,
-    marginHorizontal: 12,
+    marginRight: 12,
+  },
+  headerInfoRTL: {
+    marginRight: 0,
+    marginLeft: 12,
+  },
+  headerTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
+  headerTitleRowRTL: {
+    flexDirection: 'row-reverse',
   },
   headerTitle: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
-    color: '#0f172a',
-    marginBottom: 4,
+    color: '#0a0a0a',
+    flexShrink: 1,
+  },
+  statusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 9999,
+  },
+  statusBadgeText: {
+    fontSize: 12,
+    fontWeight: 'normal',
+    lineHeight: 16,
+    fontFamily: 'Arimo',
   },
   headerSubtitle: {
     fontSize: 14,
-    color: '#64748b',
+    color: '#6a7282',
+    lineHeight: 20,
   },
-  placeholder: {
-    width: 40,
+  menuButton: {
+    width: 36,
+    height: 36,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   textRTL: {
     textAlign: 'right',
@@ -435,6 +535,11 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   messagesContent: {
+    padding: 16,
+    paddingBottom: 20,
+  },
+  messagesContentEmpty: {
+    flexGrow: 1,
     padding: 16,
     paddingBottom: 20,
   },
@@ -516,43 +621,38 @@ const styles = StyleSheet.create({
     alignItems: 'flex-end',
     backgroundColor: '#ffffff',
     paddingHorizontal: 16,
-    paddingTop: 12,
+    paddingTop: 17,
     borderTopWidth: 1,
-    borderTopColor: '#e2e8f0',
-    minHeight: 70,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 5,
+    borderTopColor: '#e5e7eb',
+    minHeight: 73,
   },
   inputContainerRTL: {
     flexDirection: 'row-reverse',
   },
   input: {
     flex: 1,
-    minHeight: 44,
+    minHeight: 40,
     maxHeight: 100,
-    backgroundColor: '#f8fafc',
-    borderRadius: 22,
+    backgroundColor: '#f3f4f6',
+    borderRadius: 9999,
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 15,
-    color: '#0f172a',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+    paddingVertical: 8,
+    fontSize: 16,
+    color: '#0a0a0a',
+    borderWidth: 0,
   },
   sendButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: '#3b82f6',
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#155dfc',
     justifyContent: 'center',
     alignItems: 'center',
     marginLeft: 8,
   },
   sendButtonDisabled: {
-    backgroundColor: '#e2e8f0',
+    backgroundColor: '#155dfc',
+    opacity: 0.5,
   },
   sendButtonText: {
     fontSize: 20,
@@ -574,23 +674,30 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 60,
     paddingHorizontal: 40,
+    gap: 16,
   },
-  emptyStateIcon: {
-    fontSize: 64,
-    marginBottom: 16,
+  emptyStateIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 0,
   },
   emptyStateText: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: 'bold',
-    color: '#0f172a',
-    marginBottom: 8,
+    color: '#101828',
+    marginBottom: 0,
+    textAlign: 'center',
   },
   emptyStateSubtext: {
     fontSize: 14,
-    color: '#64748b',
+    color: '#6a7282',
     textAlign: 'center',
+    lineHeight: 20,
   },
 });
 

@@ -990,13 +990,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   roleTag: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 100,
   },
   roleTagText: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: 'normal',
+    lineHeight: 16,
   },
   infoCard: {
     marginHorizontal: 20,

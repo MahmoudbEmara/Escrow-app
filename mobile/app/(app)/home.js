@@ -883,21 +883,23 @@ const styles = StyleSheet.create({
   },
   statusTag: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingVertical: 4,
+    borderRadius: 100,
   },
   statusTagText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: 'normal',
+    lineHeight: 16,
   },
   roleTag: {
     paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingVertical: 4,
+    borderRadius: 100,
   },
   roleTagText: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: 'normal',
+    lineHeight: 16,
   },
   transactionTitle: {
     fontSize: 18,
