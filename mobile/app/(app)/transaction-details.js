@@ -7,7 +7,7 @@ import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as TransactionService from '../../src/services/transactionService';
 import * as DatabaseService from '../../src/services/databaseService';
-import { TransactionState, getStateDisplayName, getStateColors } from '../../src/constants/transactionStates';
+import { TransactionState, getStateDisplayName, getStateColors, getTranslatedStatusName } from '../../src/constants/transactionStates';
 import { supabase } from '../../src/lib/supabase';
 import TransactionProgressBar from '../../src/components/TransactionProgressBar';
 
@@ -449,7 +449,7 @@ export default function TransactionDetailsScreen() {
 
   const currentState = normalizeStatus(rawStatus);
   const statusColors = getStateColors(currentState);
-  const statusDisplayName = getStateDisplayName(currentState);
+  const statusDisplayName = getTranslatedStatusName(currentState, t);
   const stateInfo = transaction.stateInfo || {};
   const availableActions = stateInfo.availableActions || [];
 

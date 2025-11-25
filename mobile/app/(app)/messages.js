@@ -6,7 +6,7 @@ import { Search } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
-import { getStateColors, getStateDisplayName } from '../../src/constants/transactionStates';
+import { getStateColors, getStateDisplayName, getTranslatedStatusName } from '../../src/constants/transactionStates';
 import * as DatabaseService from '../../src/services/databaseService';
 import { supabase } from '../../src/lib/supabase';
 
@@ -138,11 +138,40 @@ export default function MessagesScreen() {
         console.log('Transactions subscription status:', status);
       });
 
+    // Subscribe to profile updates for online status changes
+    // Use a separate channel that listens to all profile updates
+    const profilesChannel = supabase
+      .channel(`profiles-online-status-${state.user.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+        },
+        (payload) => {
+          console.log('Profile update detected:', payload.new);
+          if (payload.new?.is_online !== undefined) {
+            setChats(prevChats => 
+              prevChats.map(chat => 
+                chat.otherPartyId === payload.new.id
+                  ? { ...chat, otherPartyIsOnline: payload.new.is_online }
+                  : chat
+              )
+            );
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Profiles subscription status:', status);
+      });
+
     // Cleanup subscriptions on unmount
     return () => {
       console.log('Cleaning up realtime subscriptions...');
       supabase.removeChannel(messagesChannel);
       supabase.removeChannel(transactionsChannel);
+      supabase.removeChannel(profilesChannel);
     };
   }, [state.user?.id, fetchChats]);
 
@@ -241,21 +270,25 @@ export default function MessagesScreen() {
                         {getUserInitials(chat.otherParty)}
                       </Text>
                     </LinearGradient>
-                    {/* Online indicator - placeholder for future implementation */}
-                    {/* {chat.online && <View style={styles.onlineIndicator} />} */}
+                    {chat.otherPartyIsOnline !== undefined && (
+                      <View style={[
+                        styles.onlineIndicator,
+                        !chat.otherPartyIsOnline && styles.offlineIndicator
+                      ]} />
+                    )}
                   </View>
 
                   {/* Conversation Info */}
                   <View style={[styles.chatContent, isRTL && styles.chatContentRTL]}>
                     {/* Transaction Title with Status Tag and Timestamp Row */}
                     <View style={[styles.chatHeader, isRTL && styles.chatHeaderRTL]}>
-                      <View style={styles.titleWithStatus}>
+                      <View style={[styles.titleWithStatus, isRTL && styles.titleWithStatusRTL]}>
                         <Text style={[styles.chatTitle, isRTL && styles.textRTL]} numberOfLines={1}>
                           {chat.transactionTitle}
                         </Text>
                         <View style={[styles.statusBadge, { backgroundColor: getStateColors(chat.status).bg }]}>
                           <Text style={[styles.statusBadgeText, { color: getStateColors(chat.status).text }]}>
-                            {getStateDisplayName(chat.status)}
+                            {getTranslatedStatusName(chat.status, t)}
                           </Text>
                         </View>
                       </View>
@@ -272,6 +305,7 @@ export default function MessagesScreen() {
                       <Text 
                         style={[
                           styles.chatLastMessage, 
+                          isRTL && styles.chatLastMessageRTL,
                           isRTL && styles.textRTL,
                           chat.unreadCount > 0 && styles.chatLastMessageUnread
                         ]} 
@@ -434,10 +468,13 @@ const styles = StyleSheet.create({
     right: 0,
     width: 12, // w-3 from Figma
     height: 12, // h-3 from Figma
-    backgroundColor: '#10b981', // bg-green-500 from Figma
+    backgroundColor: '#00c950', // Green dot for online
     borderWidth: 2,
     borderColor: '#ffffff',
     borderRadius: 6,
+  },
+  offlineIndicator: {
+    backgroundColor: '#9ca3af', // Grey dot for offline
   },
   chatContent: {
     flex: 1,
@@ -460,8 +497,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
     marginRight: 8,
-    gap: 8, // gap-2 from Figma
+    gap: 8,
     flexWrap: 'wrap',
+  },
+  titleWithStatusRTL: {
+    flexDirection: 'row-reverse',
+    marginRight: 0,
+    marginLeft: 8,
   },
   chatTitle: {
     fontSize: 16, // text-base from Figma
@@ -499,10 +541,14 @@ const styles = StyleSheet.create({
   },
   chatLastMessage: {
     flex: 1,
-    fontSize: 14, // text-sm from Figma
-    color: '#6b7280', // text-gray-500 from Figma
+    fontSize: 14,
+    color: '#6b7280',
     minWidth: 0,
     marginRight: 8,
+  },
+  chatLastMessageRTL: {
+    marginRight: 0,
+    marginLeft: 8,
   },
   chatLastMessageUnread: {
     color: '#0f172a', // text-gray-900 from Figma (when unread)

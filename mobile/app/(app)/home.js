@@ -8,7 +8,7 @@ import { LanguageContext } from '../../src/context/LanguageContext';
 import * as AuthSession from 'expo-auth-session';
 import * as DatabaseService from '../../src/services/databaseService';
 import { supabase } from '../../src/lib/supabase';
-import { getStateDisplayName, getStateColors } from '../../src/constants/transactionStates';
+import { getStateDisplayName, getStateColors, getTranslatedStatusName } from '../../src/constants/transactionStates';
 
 export default function HomeScreen() {
   const { state } = useContext(AuthContext);
@@ -566,7 +566,7 @@ export default function HomeScreen() {
                 }}
               >
                 <Text style={[styles.filterButtonText, selectedStatus && styles.filterButtonTextActive]}>
-                  {selectedStatus ? getStateDisplayName(selectedStatus) : t('status')}
+                  {selectedStatus ? getTranslatedStatusName(selectedStatus, t) : t('status')}
                 </Text>
                 <Text style={styles.filterButtonIcon}>▼</Text>
               </TouchableOpacity>
@@ -585,7 +585,7 @@ export default function HomeScreen() {
                         styles.dropdownItemText,
                         selectedStatus === status && styles.dropdownItemTextActive
                       ]}>
-                        {getStateDisplayName(status)}
+                        {getTranslatedStatusName(status, t)}
                       </Text>
                       {selectedStatus === status && <Text style={styles.checkmark}>✓</Text>}
                     </TouchableOpacity>
@@ -628,7 +628,7 @@ export default function HomeScreen() {
             
             const normalizedStatus = normalizeStatus(transaction.status);
             const statusColors = getStateColors(normalizedStatus);
-            const statusDisplayName = getStateDisplayName(normalizedStatus);
+            const statusDisplayName = getTranslatedStatusName(normalizedStatus, t);
             const roleColors = getRoleColor(transaction.role);
             const isOutgoing = transaction.role === 'Buyer';
             

@@ -841,7 +841,7 @@ export const getChatsForUser = async (userId) => {
     // Try with join first
     const { data: transactionsWithJoin, error: joinError } = await supabase
       .from('transactions')
-      .select('id, title, status, buyer_id, seller_id, created_at, buyer_profile:buyer_id(name), seller_profile:seller_id(name)')
+      .select('id, title, status, buyer_id, seller_id, created_at, buyer_profile:buyer_id(name, is_online), seller_profile:seller_id(name, is_online)')
       .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
       .order('created_at', { ascending: false });
 
@@ -874,11 +874,14 @@ export const getChatsForUser = async (userId) => {
         const otherPartyId = txn.buyer_id === userId ? txn.seller_id : txn.buyer_id;
         let otherPartyName = 'User';
         
-        // Try to get name from join, otherwise fetch separately
+        // Try to get name and online status from join, otherwise fetch separately
+        let otherPartyIsOnline = false;
         if (txn.buyer_id === userId) {
           otherPartyName = txn.seller_profile?.name || 'Seller';
+          otherPartyIsOnline = txn.seller_profile?.is_online || false;
         } else {
           otherPartyName = txn.buyer_profile?.name || 'Buyer';
+          otherPartyIsOnline = txn.buyer_profile?.is_online || false;
         }
 
         // If name not available from join, fetch profile separately
@@ -887,6 +890,9 @@ export const getChatsForUser = async (userId) => {
             const profileResult = await getUserProfile(otherPartyId);
             if (profileResult.data?.name) {
               otherPartyName = profileResult.data.name;
+            }
+            if (profileResult.data?.is_online !== undefined) {
+              otherPartyIsOnline = profileResult.data.is_online;
             }
           } catch (error) {
             // Keep default name if profile fetch fails
@@ -965,6 +971,7 @@ export const getChatsForUser = async (userId) => {
           transactionTitle: txn.title,
           otherParty: otherPartyName,
           otherPartyId: otherPartyId,
+          otherPartyIsOnline: otherPartyIsOnline,
           lastMessage: lastMessage?.message || '',
           lastMessageTime: lastMessageTime,
           lastActivityTimestamp: lastActivityTimestamp, // For sorting
@@ -1259,6 +1266,99 @@ export const getUserProfile = async (userId) => {
     return {
       data: null,
       error: error.message || 'Failed to get user profile',
+    };
+  }
+};
+
+/**
+ * Update user online status
+ * @param {string} userId - User ID
+ * @param {boolean} isOnline - Online status
+ * @returns {Promise<object>} - Result
+ */
+export const updateUserOnlineStatus = async (userId, isOnline) => {
+  try {
+    const { data, error } = await supabase.rpc('update_user_online_status', {
+      p_user_id: userId,
+      p_is_online: isOnline,
+    });
+
+    if (error) {
+      console.warn('RPC update_user_online_status failed, trying direct update:', error);
+      const { data: updateData, error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          is_online: isOnline,
+          last_seen: new Date().toISOString(),
+        })
+        .eq('id', userId)
+        .select()
+        .single();
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      return {
+        data: updateData,
+        error: null,
+      };
+    }
+
+    return {
+      data,
+      error: null,
+    };
+  } catch (error) {
+    console.error('Update user online status error:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to update online status',
+    };
+  }
+};
+
+/**
+ * Update user last seen timestamp
+ * @param {string} userId - User ID
+ * @returns {Promise<object>} - Result
+ */
+export const updateUserLastSeen = async (userId) => {
+  try {
+    const { data, error } = await supabase.rpc('update_user_last_seen', {
+      p_user_id: userId,
+    });
+
+    if (error) {
+      console.warn('RPC update_user_last_seen failed, trying direct update:', error);
+      const { data: updateData, error: updateError } = await supabase
+        .from('profiles')
+        .update({
+          last_seen: new Date().toISOString(),
+        })
+        .eq('id', userId)
+        .select()
+        .single();
+
+      if (updateError) {
+        throw updateError;
+      }
+
+      return {
+        data: updateData,
+        error: null,
+      };
+    }
+
+    return {
+      data,
+      error: null,
+    };
+  } catch (error) {
+    console.error('Update user last seen error:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to update last seen',
     };
   }
 };

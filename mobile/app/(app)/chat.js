@@ -6,8 +6,9 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import { MessageCircle, Send, MoreVertical } from 'lucide-react-native';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
-import { getStateColors, getStateDisplayName } from '../../src/constants/transactionStates';
+import { getStateColors, getStateDisplayName, getTranslatedStatusName } from '../../src/constants/transactionStates';
 import * as DatabaseService from '../../src/services/databaseService';
+import { supabase } from '../../src/lib/supabase';
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -42,9 +43,11 @@ export default function ChatScreen() {
 
       // Fetch other party profile
       let otherPartyName = 'User';
+      let otherPartyIsOnline = false;
       if (otherPartyId) {
         const otherPartyProfile = await DatabaseService.getUserProfile(otherPartyId);
         otherPartyName = otherPartyProfile.data?.name || (userRole === 'Buyer' ? 'Seller' : 'Buyer');
+        otherPartyIsOnline = otherPartyProfile.data?.is_online || false;
       }
 
       setChatInfo({
@@ -52,6 +55,7 @@ export default function ChatScreen() {
         transactionTitle: txn.title,
         otherParty: otherPartyName,
         otherPartyId: otherPartyId,
+        otherPartyIsOnline: otherPartyIsOnline,
         transactionStatus: txn.status,
       });
 
@@ -132,6 +136,42 @@ export default function ChatScreen() {
       }, 100);
     }
   }, [messages]);
+
+  // Subscribe to online status changes for the other party
+  useEffect(() => {
+    if (!chatInfo?.otherPartyId) return;
+
+    console.log('Setting up online status subscription for:', chatInfo.otherPartyId);
+    
+    const channel = supabase
+      .channel(`online-status-${chatInfo.otherPartyId}-${Date.now()}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'profiles',
+          filter: `id=eq.${chatInfo.otherPartyId}`,
+        },
+        (payload) => {
+          console.log('Online status update received:', payload.new);
+          if (payload.new?.is_online !== undefined) {
+            setChatInfo(prev => ({
+              ...prev,
+              otherPartyIsOnline: payload.new.is_online,
+            }));
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Online status subscription status:', status);
+      });
+
+    return () => {
+      console.log('Cleaning up online status subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [chatInfo?.otherPartyId]);
 
   const handleSend = async () => {
     if (!message.trim() || !transactionId || !state.user?.id || sending) return;
@@ -251,7 +291,7 @@ export default function ChatScreen() {
           };
           
           const statusColors = chatInfo.transactionStatus ? getStateColors(chatInfo.transactionStatus) : { bg: '#dbeafe', text: '#1e40af' };
-          const statusDisplayName = chatInfo.transactionStatus ? getStateDisplayName(chatInfo.transactionStatus) : 'Pending';
+          const statusDisplayName = chatInfo.transactionStatus ? getTranslatedStatusName(chatInfo.transactionStatus, t) : (t('statusPendingApproval') || 'Pending');
           const initials = getInitials(chatInfo.otherParty);
           
           return (
@@ -260,7 +300,12 @@ export default function ChatScreen() {
                 <View style={styles.profilePicture}>
                   <Text style={styles.profileInitials}>{initials}</Text>
                 </View>
-                <View style={styles.onlineIndicator} />
+                {chatInfo.otherPartyIsOnline !== undefined && (
+                  <View style={[
+                    styles.onlineIndicator,
+                    !chatInfo.otherPartyIsOnline && styles.offlineIndicator
+                  ]} />
+                )}
               </View>
               <View style={[styles.headerInfo, isRTL && styles.headerInfoRTL]}>
                 <View style={[styles.headerTitleRow, isRTL && styles.headerTitleRowRTL]}>
@@ -481,6 +526,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#00c950',
     borderWidth: 2,
     borderColor: '#ffffff',
+  },
+  offlineIndicator: {
+    backgroundColor: '#9ca3af',
   },
   headerInfo: {
     flex: 1,

@@ -6,11 +6,14 @@ import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as DatabaseService from '../../src/services/databaseService';
 import { supabase } from '../../src/lib/supabase';
+import { useOnlineStatus } from '../../src/hooks/useOnlineStatus';
 
 export default function AppLayout() {
   const { state } = useContext(AuthContext);
   const { t, isRTL } = useContext(LanguageContext);
   const [unreadCount, setUnreadCount] = useState(0);
+
+  useOnlineStatus(state.user?.id);
 
   // Fetch total unread messages count
   const fetchUnreadCount = useCallback(async () => {

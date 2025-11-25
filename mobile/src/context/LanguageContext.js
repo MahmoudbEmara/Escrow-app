@@ -115,6 +115,12 @@ const translations = {
     escrowBalance: 'Escrow Balance',
     addMoney: 'Add Money',
     paymentHistory: 'Payment History',
+    transactionInitiated: 'Transaction initiated',
+    stateChangedFromTo: 'State changed from {from} to {to}',
+    sellerStartedWork: 'Seller started work on transaction',
+    fundsReleased: 'Funds released for transaction: {title}',
+    fundsHeldInEscrow: 'Funds held in escrow for transaction: {title}',
+    transaction: 'Transaction',
     
     // Add Money
     enterAmount: 'Enter Amount',
@@ -190,6 +196,15 @@ const translations = {
     progressDeliveryAcceptance: 'Delivery acceptance',
     progressMoneyReleased: 'Money released',
     progressCompleted: 'Completed',
+    statusDraft: 'Draft',
+    statusPendingApproval: 'Pending Approval',
+    statusAccepted: 'Accepted',
+    statusFunded: 'Funded',
+    statusInProgress: 'In Progress',
+    statusDelivered: 'Delivered',
+    statusCompleted: 'Completed',
+    statusCancelled: 'Cancelled',
+    statusDisputed: 'Disputed',
     
     // Settings
     editProfile: 'Edit Profile',
@@ -326,6 +341,12 @@ const translations = {
     escrowBalance: 'رصيد الضمان',
     addMoney: 'إضافة أموال',
     paymentHistory: 'سجل المدفوعات',
+    transactionInitiated: 'تم بدء المعاملة',
+    stateChangedFromTo: 'تم تغيير الحالة من {from} إلى {to}',
+    sellerStartedWork: 'بدأ البائع العمل على المعاملة',
+    fundsReleased: 'تم إطلاق الأموال للمعاملة: {title}',
+    fundsHeldInEscrow: 'تم الاحتفاظ بالأموال في الضمان للمعاملة: {title}',
+    transaction: 'معاملة',
     
     // Add Money
     enterAmount: 'أدخل المبلغ',
@@ -403,6 +424,15 @@ const translations = {
     progressDeliveryAcceptance: 'قبول التسليم',
     progressMoneyReleased: 'تم إطلاق المال',
     progressCompleted: 'مكتمل',
+    statusDraft: 'مسودة',
+    statusPendingApproval: 'في انتظار الموافقة',
+    statusAccepted: 'مقبول',
+    statusFunded: 'ممول',
+    statusInProgress: 'قيد التنفيذ',
+    statusDelivered: 'تم التسليم',
+    statusCompleted: 'مكتمل',
+    statusCancelled: 'ملغي',
+    statusDisputed: 'في نزاع',
     
     // Settings
     editProfile: 'تعديل الملف الشخصي',

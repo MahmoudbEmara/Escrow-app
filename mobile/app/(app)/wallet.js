@@ -6,14 +6,16 @@ import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as DatabaseService from '../../src/services/databaseService';
 import { supabase } from '../../src/lib/supabase';
+import { getTranslatedStatusName } from '../../src/constants/transactionStates';
 
 export default function WalletScreen() {
   const { state } = useContext(AuthContext);
-  const { t, isRTL } = useContext(LanguageContext);
+  const { t, isRTL, language } = useContext(LanguageContext);
   const router = useRouter();
 
   const [availableBalance, setAvailableBalance] = useState(0);
   const [paymentHistory, setPaymentHistory] = useState([]);
+  const [rawHistoryData, setRawHistoryData] = useState([]);
   const [loading, setLoading] = useState(true);
   
   const fetchDataRef = useRef(null);
@@ -80,18 +82,14 @@ export default function WalletScreen() {
       // Fetch payment history
       const historyResult = await DatabaseService.getTransactionHistory(state.user.id);
       if (historyResult.data) {
-        const formattedHistory = historyResult.data.map(item => ({
+        const rawData = historyResult.data.map(item => ({
           id: item.id,
-          name: item.description || item.name || 'Transaction',
-          date: new Date(item.created_at || item.date).toLocaleDateString('en-US', { 
-            month: 'short', 
-            day: 'numeric', 
-            year: 'numeric' 
-          }),
+          description: item.description || item.name,
+          created_at: item.created_at || item.date,
           amount: parseFloat(item.amount || 0),
           type: item.type || (item.amount >= 0 ? 'credit' : 'debit'),
         }));
-        setPaymentHistory(formattedHistory);
+        setRawHistoryData(rawData);
       }
 
       setLoading(false);
@@ -101,10 +99,79 @@ export default function WalletScreen() {
     }
   }, [state.user?.id, isTestUser]);
 
+  const translateHistory = useCallback(() => {
+    if (isTestUser) {
+      setPaymentHistory(testPaymentHistory);
+      return;
+    }
+
+    const translateDescription = (description) => {
+      if (!description) return t('transaction');
+      
+      const desc = description.toLowerCase();
+      
+      if (desc.includes('transaction initiated')) {
+        return t('transactionInitiated');
+      }
+      
+      if (desc.includes('state changed from') && desc.includes('to')) {
+        const match = description.match(/State changed from (.+?) to (.+)/i);
+        if (match) {
+          const fromState = match[1].trim();
+          const toState = match[2].trim();
+          const fromTranslated = getTranslatedStatusName(fromState, t);
+          const toTranslated = getTranslatedStatusName(toState, t);
+          return t('stateChangedFromTo').replace('{from}', fromTranslated).replace('{to}', toTranslated);
+        }
+      }
+      
+      if (desc.includes('seller started work')) {
+        return t('sellerStartedWork');
+      }
+      
+      if (desc.includes('funds released')) {
+        const match = description.match(/Funds released for transaction: (.+)/i);
+        if (match) {
+          const title = match[1].trim();
+          return t('fundsReleased').replace('{title}', title);
+        }
+        return t('fundsReleased').replace('{title}', '');
+      }
+      
+      if (desc.includes('funds held in escrow')) {
+        const match = description.match(/Funds held in escrow for transaction: (.+)/i);
+        if (match) {
+          const title = match[1].trim();
+          return t('fundsHeldInEscrow').replace('{title}', title);
+        }
+        return t('fundsHeldInEscrow').replace('{title}', '');
+      }
+      
+      return description;
+    };
+    
+    const formattedHistory = rawHistoryData.map(item => ({
+      id: item.id,
+      name: translateDescription(item.description),
+      date: new Date(item.created_at).toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric', 
+        year: 'numeric' 
+      }),
+      amount: item.amount,
+      type: item.type,
+    }));
+    setPaymentHistory(formattedHistory);
+  }, [rawHistoryData, t, isTestUser]);
+
   useEffect(() => {
     fetchDataRef.current = fetchData;
     fetchData();
   }, [fetchData]);
+
+  useEffect(() => {
+    translateHistory();
+  }, [translateHistory, language]);
 
   // Set up realtime subscriptions for wallet updates
   useEffect(() => {
@@ -150,6 +217,9 @@ export default function WalletScreen() {
             if (fetchDataRef.current) {
               fetchDataRef.current();
             }
+            setTimeout(() => {
+              translateHistory();
+            }, 100);
           }
         }
       )
@@ -224,6 +294,7 @@ export default function WalletScreen() {
               <View style={[styles.historyLeft, isRTL && styles.historyLeftRTL]}>
                 <View style={[
                   styles.historyIcon,
+                  isRTL && styles.historyIconRTL,
                   { backgroundColor: payment.type === 'credit' ? '#d1fae5' : '#fee2e2' }
                 ]}>
                   <Text style={[
@@ -373,6 +444,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
+  },
+  historyIconRTL: {
+    marginRight: 0,
+    marginLeft: 16,
   },
   historyIconText: {
     fontSize: 20,

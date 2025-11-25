@@ -97,6 +97,12 @@ export const AuthProvider = ({ children }) => {
         console.log('Auth state changed:', event);
 
         if (event === 'SIGNED_IN' && session) {
+          // Mark user as online
+          if (session.user?.id) {
+            DatabaseService.updateUserOnlineStatus(session.user.id, true).catch(err => {
+              console.warn('Failed to set user online status:', err);
+            });
+          }
           // Get user profile
           const profileResult = await DatabaseService.getUserProfile(session.user.id);
           const userData = {
@@ -111,6 +117,12 @@ export const AuthProvider = ({ children }) => {
             session: session,
           });
         } else if (event === 'SIGNED_OUT') {
+          // Mark user as offline before signing out
+          if (state.user?.id) {
+            DatabaseService.updateUserOnlineStatus(state.user.id, false).catch(err => {
+              console.warn('Failed to set user offline status:', err);
+            });
+          }
           dispatch({ type: 'SIGN_OUT' });
         } else if (event === 'TOKEN_REFRESHED' && session) {
           // Update session on token refresh
@@ -265,6 +277,12 @@ export const AuthProvider = ({ children }) => {
     },
     signOut: async () => {
       try {
+        // Mark user as offline before signing out
+        if (state.user?.id) {
+          await DatabaseService.updateUserOnlineStatus(state.user.id, false).catch(err => {
+            console.warn('Failed to set user offline status:', err);
+          });
+        }
         const result = await AuthService.signOut();
         if (result.error) {
           return { error: result.error };

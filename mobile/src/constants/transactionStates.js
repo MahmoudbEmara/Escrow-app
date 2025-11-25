@@ -126,6 +126,34 @@ export const getStateDisplayName = (state) => {
   return STATE_DISPLAY_NAMES[state] || state;
 };
 
+export const getTranslatedStatusName = (state, t) => {
+  if (!t || typeof t !== 'function') {
+    return getStateDisplayName(state);
+  }
+  
+  const normalizedStatus = (state || '').toLowerCase().trim();
+  const statusMap = {
+    'draft': 'statusDraft',
+    'pending_approval': 'statusPendingApproval',
+    'pending approval': 'statusPendingApproval',
+    'accepted': 'statusAccepted',
+    'funded': 'statusFunded',
+    'in_progress': 'statusInProgress',
+    'in progress': 'statusInProgress',
+    'delivered': 'statusDelivered',
+    'completed': 'statusCompleted',
+    'cancelled': 'statusCancelled',
+    'canceled': 'statusCancelled',
+    'disputed': 'statusDisputed',
+  };
+  
+  const translationKey = statusMap[normalizedStatus];
+  if (translationKey && t(translationKey)) {
+    return t(translationKey);
+  }
+  return getStateDisplayName(state);
+};
+
 /**
  * Get color scheme for a state
  * @param {string} state - State value
