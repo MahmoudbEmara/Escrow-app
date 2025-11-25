@@ -154,6 +154,7 @@ export const AuthProvider = ({ children }) => {
 
   const authContext = {
     state,
+    dispatch,
     signIn: async (emailOrUsername, password) => {
       try {
         let emailToUse = null;

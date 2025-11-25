@@ -841,7 +841,7 @@ export const getChatsForUser = async (userId) => {
     // Try with join first
     const { data: transactionsWithJoin, error: joinError } = await supabase
       .from('transactions')
-      .select('id, title, status, buyer_id, seller_id, created_at, buyer_profile:buyer_id(name, is_online), seller_profile:seller_id(name, is_online)')
+      .select('id, title, status, buyer_id, seller_id, created_at, buyer_profile:buyer_id(name, is_online, avatar_url), seller_profile:seller_id(name, is_online, avatar_url)')
       .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
       .order('created_at', { ascending: false });
 
@@ -867,36 +867,67 @@ export const getChatsForUser = async (userId) => {
       return { data: [], error: null };
     }
 
+    // Collect all unique other party IDs
+    const otherPartyIds = new Set();
+    transactions.forEach(txn => {
+      const otherPartyId = txn.buyer_id === userId ? txn.seller_id : txn.buyer_id;
+      if (otherPartyId) {
+        otherPartyIds.add(otherPartyId);
+      }
+    });
+
+    // Batch fetch all profiles at once
+    const profilesMap = new Map();
+    if (otherPartyIds.size > 0) {
+      try {
+        const { data: profiles, error: profilesError } = await supabase
+          .from('profiles')
+          .select('id, name, is_online, avatar_url')
+          .in('id', Array.from(otherPartyIds));
+
+        if (!profilesError && profiles) {
+          profiles.forEach(profile => {
+            profilesMap.set(profile.id, profile);
+          });
+        }
+      } catch (error) {
+        console.error('Error batch fetching profiles:', error);
+      }
+    }
+
     // For each transaction, get the last message and unread count
     const chats = await Promise.all(
       transactions.map(async (txn) => {
         // Determine the other party
         const otherPartyId = txn.buyer_id === userId ? txn.seller_id : txn.buyer_id;
         let otherPartyName = 'User';
+        let otherPartyAvatarUrl = null;
         
-        // Try to get name and online status from join, otherwise fetch separately
+        // Try to get name, online status, and avatar from join first
         let otherPartyIsOnline = false;
         if (txn.buyer_id === userId) {
           otherPartyName = txn.seller_profile?.name || 'Seller';
           otherPartyIsOnline = txn.seller_profile?.is_online || false;
+          otherPartyAvatarUrl = txn.seller_profile?.avatar_url || null;
         } else {
           otherPartyName = txn.buyer_profile?.name || 'Buyer';
           otherPartyIsOnline = txn.buyer_profile?.is_online || false;
+          otherPartyAvatarUrl = txn.buyer_profile?.avatar_url || null;
         }
 
-        // If name not available from join, fetch profile separately
-        if (otherPartyName === 'Seller' || otherPartyName === 'Buyer') {
-          try {
-            const profileResult = await getUserProfile(otherPartyId);
-            if (profileResult.data?.name) {
-              otherPartyName = profileResult.data.name;
-            }
-            if (profileResult.data?.is_online !== undefined) {
-              otherPartyIsOnline = profileResult.data.is_online;
-            }
-          } catch (error) {
-            // Keep default name if profile fetch fails
-            console.error('Error fetching profile for chat:', error);
+        // Use batch-fetched profile data to ensure we have complete data
+        if (otherPartyId && profilesMap.has(otherPartyId)) {
+          const profile = profilesMap.get(otherPartyId);
+          // Always use batch-fetched data as it's more reliable
+          if (profile.name) {
+            otherPartyName = profile.name;
+          }
+          if (profile.is_online !== undefined) {
+            otherPartyIsOnline = profile.is_online;
+          }
+          // Always use batch-fetched avatar_url if available
+          if (profile.avatar_url) {
+            otherPartyAvatarUrl = profile.avatar_url;
           }
         }
 
@@ -971,6 +1002,7 @@ export const getChatsForUser = async (userId) => {
           transactionTitle: txn.title,
           otherParty: otherPartyName,
           otherPartyId: otherPartyId,
+          otherPartyAvatarUrl: otherPartyAvatarUrl,
           otherPartyIsOnline: otherPartyIsOnline,
           lastMessage: lastMessage?.message || '',
           lastMessageTime: lastMessageTime,
@@ -1266,6 +1298,147 @@ export const getUserProfile = async (userId) => {
     return {
       data: null,
       error: error.message || 'Failed to get user profile',
+    };
+  }
+};
+
+/**
+ * Upload profile picture
+ * @param {string} userId - User ID
+ * @param {string|object} fileUriOrPickerResult - Local file URI string or ImagePicker result object
+ * @param {string} mimeType - MIME type of the image (e.g., 'image/jpeg', 'image/png')
+ * @returns {Promise<object>} - Result with public URL
+ */
+export const uploadProfilePicture = async (userId, fileUriOrPickerResult, mimeType = 'image/jpeg') => {
+  try {
+    let fileUri;
+    let actualMimeType = mimeType;
+
+    if (typeof fileUriOrPickerResult === 'string') {
+      fileUri = fileUriOrPickerResult;
+    } else if (fileUriOrPickerResult?.uri) {
+      fileUri = fileUriOrPickerResult.uri;
+      actualMimeType = fileUriOrPickerResult.mimeType || fileUriOrPickerResult.type || mimeType;
+    } else {
+      throw new Error('Invalid file URI or picker result');
+    }
+
+    const fileExt = actualMimeType.split('/')[1] || 'jpg';
+    const fileName = `${userId}/${Date.now()}.${fileExt}`;
+
+    const oldProfileResult = await getUserProfile(userId);
+    const oldAvatarUrl = oldProfileResult.data?.avatar_url;
+
+    const { uploadFile } = await import('./storageService');
+    const uploadResult = await uploadFile(
+      'profile-pictures',
+      fileName,
+      {
+        uri: fileUri,
+        type: actualMimeType,
+        name: fileName.split('/').pop(),
+      },
+      {
+        contentType: actualMimeType,
+        upsert: false,
+      }
+    );
+
+    if (uploadResult.error) {
+      throw new Error(uploadResult.error);
+    }
+
+    const publicUrl = uploadResult.publicUrl;
+
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .update({ avatar_url: publicUrl })
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (profileError) {
+      throw profileError;
+    }
+
+    if (oldAvatarUrl && oldAvatarUrl !== publicUrl) {
+      try {
+        const urlParts = oldAvatarUrl.split('/');
+        const oldFileName = urlParts[urlParts.length - 1];
+        const oldFilePath = `${userId}/${oldFileName}`;
+        await supabase.storage
+          .from('profile-pictures')
+          .remove([oldFilePath]);
+      } catch (deleteError) {
+        console.warn('Failed to delete old profile picture:', deleteError);
+      }
+    }
+
+    return {
+      data: {
+        url: publicUrl,
+        path: uploadResult.path,
+        profile: profileData,
+      },
+      error: null,
+    };
+  } catch (error) {
+    console.error('Upload profile picture error:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to upload profile picture',
+    };
+  }
+};
+
+/**
+ * Delete profile picture
+ * @param {string} userId - User ID
+ * @returns {Promise<object>} - Result
+ */
+export const deleteProfilePicture = async (userId) => {
+  try {
+    const profileResult = await getUserProfile(userId);
+    if (profileResult.error || !profileResult.data?.avatar_url) {
+      return {
+        data: null,
+        error: 'No profile picture to delete',
+      };
+    }
+
+    const avatarUrl = profileResult.data.avatar_url;
+    const urlParts = avatarUrl.split('/');
+    const fileName = urlParts[urlParts.length - 1];
+    const filePath = `${userId}/${fileName}`;
+
+    const { error: deleteError } = await supabase.storage
+      .from('profile-pictures')
+      .remove([filePath]);
+
+    if (deleteError) {
+      console.warn('Error deleting old profile picture:', deleteError);
+    }
+
+    const { data, error } = await supabase
+      .from('profiles')
+      .update({ avatar_url: null })
+      .eq('id', userId)
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      data,
+      error: null,
+    };
+  } catch (error) {
+    console.error('Delete profile picture error:', error);
+    return {
+      data: null,
+      error: error.message || 'Failed to delete profile picture',
     };
   }
 };

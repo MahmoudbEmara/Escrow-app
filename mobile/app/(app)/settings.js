@@ -1,14 +1,16 @@
-import React, { useState, useContext } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert } from 'react-native';
+import React, { useState, useContext, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, Alert, Image, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
-import { User, Lock, Bell, HelpCircle, Shield, ChevronRight, LogOut, FileText } from 'lucide-react-native';
+import * as ImagePicker from 'expo-image-picker';
+import { User, Lock, Bell, HelpCircle, Shield, ChevronRight, LogOut, FileText, Camera } from 'lucide-react-native';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
+import * as DatabaseService from '../../src/services/databaseService';
 
 export default function SettingsScreen() {
-  const { signOut, state } = useContext(AuthContext);
+  const { signOut, state, dispatch } = useContext(AuthContext);
   const { t, isRTL, language, changeLanguage, getLanguageDisplayName, isLoading: languageLoading } = useContext(LanguageContext);
   const router = useRouter();
 
@@ -33,16 +35,77 @@ export default function SettingsScreen() {
   const [biometricLogin, setBiometricLogin] = useState(false);
   const [twoFactorAuth, setTwoFactorAuth] = useState(false);
   const [pushNotifications, setPushNotifications] = useState(true);
+  const [profilePicture, setProfilePicture] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
-  const kycStatus = 'Verified'; // This would come from your backend
+  const kycStatus = 'Verified';
+
+  useEffect(() => {
+    if (state.user?.profile?.avatar_url) {
+      setProfilePicture(state.user.profile.avatar_url);
+    }
+  }, [state.user?.profile?.avatar_url]);
 
   const getUserInitials = (name) => {
     if (!name) return 'JD';
     const parts = name.split(' ');
     if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
+      return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
     }
     return name.substring(0, 2).toUpperCase();
+  };
+
+  const handleProfilePicturePress = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'We need permission to access your photos to change your profile picture.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        setUploading(true);
+        const asset = result.assets[0];
+        const mimeType = asset.mimeType || asset.type || 'image/jpeg';
+        const uploadResult = await DatabaseService.uploadProfilePicture(
+          state.user.id,
+          asset,
+          mimeType
+        );
+
+        if (uploadResult.error) {
+          Alert.alert('Error', uploadResult.error);
+          setUploading(false);
+        } else if (uploadResult.data) {
+          setProfilePicture(uploadResult.data.url);
+          const updatedProfile = await DatabaseService.getUserProfile(state.user.id);
+          if (updatedProfile.data) {
+            const updatedUser = {
+              ...state.user,
+              profile: updatedProfile.data,
+            };
+            if (dispatch) {
+              dispatch({ type: 'UPDATE_USER', user: updatedUser });
+            }
+          }
+          Alert.alert('Success', 'Profile picture updated successfully');
+          setUploading(false);
+        } else {
+          setUploading(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image');
+      setUploading(false);
+    }
   };
 
   const handleLogout = () => {
@@ -114,16 +177,38 @@ export default function SettingsScreen() {
         {/* User Profile Section */}
         <View style={styles.profileSectionContainer}>
           <View style={[styles.profileSection, isRTL && styles.profileSectionRTL]}>
-            <LinearGradient
-              colors={['#2563eb', '#9333ea']} // blue-600 to purple-700 from Figma
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.profileImage}
+            <TouchableOpacity
+              onPress={handleProfilePicturePress}
+              disabled={uploading}
+              activeOpacity={0.8}
+              style={styles.profileImageContainer}
             >
-              <Text style={styles.profileInitials}>
-                {getUserInitials(state.user?.profile?.name || state.user?.email || 'User')}
-              </Text>
-            </LinearGradient>
+              {profilePicture ? (
+                <Image
+                  source={{ uri: profilePicture }}
+                  style={styles.profileImage}
+                  resizeMode="cover"
+                />
+              ) : (
+                <LinearGradient
+                  colors={['#2563eb', '#9333ea']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={styles.profileImage}
+                >
+                  <Text style={styles.profileInitials}>
+                    {getUserInitials(state.user?.profile?.name || state.user?.email || 'User')}
+                  </Text>
+                </LinearGradient>
+              )}
+              <View style={styles.cameraButton}>
+                {uploading ? (
+                  <ActivityIndicator size="small" color="#ffffff" />
+                ) : (
+                  <Camera size={16} color="#ffffff" strokeWidth={2} />
+                )}
+              </View>
+            </TouchableOpacity>
             <View style={styles.profileInfo}>
               <Text style={[styles.profileName, isRTL && styles.textRTL]}>
                 {state.user?.profile?.name || state.user?.email || 'User'}
@@ -135,8 +220,7 @@ export default function SettingsScreen() {
             <TouchableOpacity
               style={styles.editButton}
               onPress={() => {
-                // Navigate to edit profile
-                Alert.alert(t('editProfile'), t('updatePersonalDetails'));
+                Alert.alert(safeT('editProfile', 'Edit Profile'), safeT('updatePersonalDetails', 'Update Personal Details'));
               }}
             >
               <Text style={styles.editButtonText}>{safeT('editProfile', 'Edit Profile')}</Text>
@@ -362,10 +446,28 @@ const styles = StyleSheet.create({
     borderBottomColor: '#e5e7eb',
     marginBottom: 8,
   },
+  profileImageContainer: {
+    position: 'relative',
+    width: 64,
+    height: 64,
+  },
   profileImage: {
     width: 64, // w-16 from Figma
     height: 64, // h-16 from Figma
     borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  cameraButton: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 32, // w-8 from Figma
+    height: 32, // h-8 from Figma
+    borderRadius: 16,
+    backgroundColor: '#155dfc', // Blue from Figma
+    borderWidth: 2,
+    borderColor: '#ffffff',
     justifyContent: 'center',
     alignItems: 'center',
   },

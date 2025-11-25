@@ -1,5 +1,5 @@
 import React, { useContext, useState, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Platform, Image } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { Search } from 'lucide-react-native';
@@ -9,6 +9,7 @@ import { LanguageContext } from '../../src/context/LanguageContext';
 import { getStateColors, getStateDisplayName, getTranslatedStatusName } from '../../src/constants/transactionStates';
 import * as DatabaseService from '../../src/services/databaseService';
 import { supabase } from '../../src/lib/supabase';
+import * as ImageCacheService from '../../src/services/imageCacheService';
 
 export default function MessagesScreen() {
   const { state } = useContext(AuthContext);
@@ -18,8 +19,9 @@ export default function MessagesScreen() {
   const [chats, setChats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
-  const [chatMessages, setChatMessages] = useState({}); // Store messages for each chat
+  const [chatMessages, setChatMessages] = useState({});
   const [loadingMessages, setLoadingMessages] = useState(false);
+  const [cachedImageUris, setCachedImageUris] = useState({});
 
   const fetchChats = useCallback(async () => {
     if (!state.user?.id) {
@@ -30,7 +32,30 @@ export default function MessagesScreen() {
     try {
       const result = await DatabaseService.getChatsForUser(state.user.id);
       if (result.data) {
-        setChats(result.data);
+        const chatsData = result.data;
+        
+        setChats(chatsData);
+        
+        const avatarUrls = chatsData
+          .map(chat => chat.otherPartyAvatarUrl)
+          .filter(url => url);
+        
+        if (avatarUrls.length > 0) {
+          const cachePromises = avatarUrls.map(async (url) => {
+            const cachedUri = await ImageCacheService.getCachedImageUri(url);
+            return { url, cachedUri };
+          });
+          
+          const cachedResults = await Promise.all(cachePromises);
+          const uriMap = {};
+          cachedResults.forEach(({ url, cachedUri }) => {
+            if (cachedUri) {
+              uriMap[url] = cachedUri;
+            }
+          });
+          
+          setCachedImageUris(prev => ({ ...prev, ...uriMap }));
+        }
       } else if (result.error) {
         console.error('Error fetching chats:', result.error);
       }
@@ -260,20 +285,32 @@ export default function MessagesScreen() {
                 >
                   {/* Avatar */}
                   <View style={[styles.avatarContainer, isRTL && styles.avatarContainerRTL]}>
-                    <LinearGradient
-                      colors={['#2563eb', '#8b5cf6']} // from-blue-600 to-purple-700
-                      start={{ x: 0, y: 0 }}
-                      end={{ x: 1, y: 1 }}
-                      style={styles.chatAvatar}
-                    >
-                      <Text style={styles.chatAvatarText}>
-                        {getUserInitials(chat.otherParty)}
-                      </Text>
-                    </LinearGradient>
+                    <View style={styles.avatarWrapper}>
+                      <LinearGradient
+                        colors={['#2563eb', '#8b5cf6']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 1 }}
+                        style={styles.chatAvatarGradient}
+                      >
+                        <Text style={styles.chatAvatarText}>
+                          {getUserInitials(chat.otherParty)}
+                        </Text>
+                      </LinearGradient>
+                      {chat.otherPartyAvatarUrl && (
+                        <Image
+                          source={{ uri: cachedImageUris[chat.otherPartyAvatarUrl] || chat.otherPartyAvatarUrl }}
+                          style={styles.chatAvatarImage}
+                          resizeMode="cover"
+                          onError={() => {
+                            console.log('Error loading avatar for chat:', chat.otherPartyId);
+                          }}
+                        />
+                      )}
+                    </View>
                     {chat.otherPartyIsOnline !== undefined && (
                       <View style={[
                         styles.onlineIndicator,
-                        !chat.otherPartyIsOnline && styles.offlineIndicator
+                        { backgroundColor: chat.otherPartyIsOnline ? '#00c950' : '#9ca3af' }
                       ]} />
                     )}
                   </View>
@@ -450,12 +487,34 @@ const styles = StyleSheet.create({
     marginRight: 0,
     marginLeft: 12,
   },
-  chatAvatar: {
-    width: 48, // w-12 from Figma
-    height: 48, // h-12 from Figma
+  avatarWrapper: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  chatAvatarGradient: {
+    width: 48,
+    height: 48,
     borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  chatAvatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   chatAvatarText: {
     fontSize: 16,

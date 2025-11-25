@@ -1,14 +1,16 @@
 import React, { useState, useContext, useEffect, useCallback, useRef } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl, Platform, Modal, TouchableWithoutFeedback } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Filter } from 'lucide-react-native';
+import { Filter, X } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as AuthSession from 'expo-auth-session';
 import * as DatabaseService from '../../src/services/databaseService';
 import { supabase } from '../../src/lib/supabase';
 import { getStateDisplayName, getStateColors, getTranslatedStatusName } from '../../src/constants/transactionStates';
+import * as ImageCacheService from '../../src/services/imageCacheService';
 
 export default function HomeScreen() {
   const { state } = useContext(AuthContext);
@@ -26,6 +28,9 @@ export default function HomeScreen() {
   const [totalInEscrow, setTotalInEscrow] = useState(0);
   const [incoming, setIncoming] = useState(0);
   const [outgoing, setOutgoing] = useState(0);
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [viewerImageUri, setViewerImageUri] = useState(null);
+  const [cachedProfileImageUri, setCachedProfileImageUri] = useState(null);
   
   const fetchDataRef = useRef(null);
   
@@ -454,11 +459,32 @@ export default function HomeScreen() {
         {/* User Profile Section */}
         <View style={[styles.header, isRTL && styles.headerRTL]}>
           <View style={[styles.profileSection, isRTL && styles.profileSectionRTL]}>
-            <View style={[styles.profileImage, isRTL && styles.profileImageRTL]}>
-              <Text style={styles.profileInitials}>
-                {getUserInitials(getUserDisplayName())}
-              </Text>
-            </View>
+            {state.user?.profile?.avatar_url ? (
+              <TouchableOpacity
+                onPress={() => {
+                  setViewerImageUri(cachedProfileImageUri || state.user.profile.avatar_url);
+                  setImageViewerVisible(true);
+                }}
+                activeOpacity={0.8}
+              >
+                <Image
+                  source={{ uri: cachedProfileImageUri || state.user.profile.avatar_url }}
+                  style={[styles.profileImage, isRTL && styles.profileImageRTL]}
+                  resizeMode="cover"
+                />
+              </TouchableOpacity>
+            ) : (
+              <LinearGradient
+                colors={['#2563eb', '#9333ea']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[styles.profileImage, isRTL && styles.profileImageRTL]}
+              >
+                <Text style={styles.profileInitials}>
+                  {getUserInitials(getUserDisplayName())}
+                </Text>
+              </LinearGradient>
+            )}
             <View style={styles.userInfo}>
               <Text style={[styles.welcomeText, isRTL && styles.textRTL]}>
                 {t('welcome') || 'Welcome'}, <Text style={styles.firstNameHighlight}>{getUserFirstName()}</Text>
@@ -667,6 +693,36 @@ export default function HomeScreen() {
           })}
         </View>
       </ScrollView>
+
+      {/* Image Viewer Modal */}
+      <Modal
+        visible={imageViewerVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setImageViewerVisible(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setImageViewerVisible(false)}>
+          <View style={styles.imageViewerContainer}>
+            <TouchableWithoutFeedback>
+              <View style={styles.imageViewerContent}>
+                <TouchableOpacity
+                  style={styles.closeButton}
+                  onPress={() => setImageViewerVisible(false)}
+                >
+                  <X size={24} color="#ffffff" />
+                </TouchableOpacity>
+                {viewerImageUri && (
+                  <Image
+                    source={{ uri: viewerImageUri }}
+                    style={styles.fullSizeImage}
+                    resizeMode="contain"
+                  />
+                )}
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     </View>
   );
 }
@@ -735,6 +791,34 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: '#ffffff',
+  },
+  imageViewerContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 1,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullSizeImage: {
+    width: '100%',
+    height: '100%',
   },
   userInfo: {
     flex: 1,

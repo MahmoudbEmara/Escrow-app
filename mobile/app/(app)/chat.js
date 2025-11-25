@@ -1,14 +1,16 @@
 import React, { useState, useContext, useRef, useEffect, useCallback } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, KeyboardAvoidingView, Platform, ActivityIndicator, Image, Modal, TouchableWithoutFeedback } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { MessageCircle, Send, MoreVertical } from 'lucide-react-native';
+import { MessageCircle, Send, MoreVertical, X } from 'lucide-react-native';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import { getStateColors, getStateDisplayName, getTranslatedStatusName } from '../../src/constants/transactionStates';
 import * as DatabaseService from '../../src/services/databaseService';
 import { supabase } from '../../src/lib/supabase';
+import * as ImageCacheService from '../../src/services/imageCacheService';
 
 export default function ChatScreen() {
   const router = useRouter();
@@ -20,6 +22,9 @@ export default function ChatScreen() {
   const [chatInfo, setChatInfo] = useState(null);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [imageViewerVisible, setImageViewerVisible] = useState(false);
+  const [viewerImageUri, setViewerImageUri] = useState(null);
+  const [cachedAvatarUri, setCachedAvatarUri] = useState(null);
   const scrollViewRef = useRef(null);
   const insets = useSafeAreaInsets();
 
@@ -43,11 +48,20 @@ export default function ChatScreen() {
 
       // Fetch other party profile
       let otherPartyName = 'User';
+      let otherPartyAvatarUrl = null;
+      let otherPartyInitials = '';
       let otherPartyIsOnline = false;
       if (otherPartyId) {
         const otherPartyProfile = await DatabaseService.getUserProfile(otherPartyId);
         otherPartyName = otherPartyProfile.data?.name || (userRole === 'Buyer' ? 'Seller' : 'Buyer');
+        otherPartyAvatarUrl = otherPartyProfile.data?.avatar_url || null;
         otherPartyIsOnline = otherPartyProfile.data?.is_online || false;
+        otherPartyInitials = (otherPartyProfile.data?.name || 'U')
+          .split(' ')
+          .map(n => n[0])
+          .join('')
+          .toUpperCase()
+          .substring(0, 2);
       }
 
       setChatInfo({
@@ -55,6 +69,8 @@ export default function ChatScreen() {
         transactionTitle: txn.title,
         otherParty: otherPartyName,
         otherPartyId: otherPartyId,
+        otherPartyAvatarUrl: otherPartyAvatarUrl,
+        otherPartyInitials: otherPartyInitials,
         otherPartyIsOnline: otherPartyIsOnline,
         transactionStatus: txn.status,
       });
@@ -119,6 +135,14 @@ export default function ChatScreen() {
   useEffect(() => {
     fetchChatData();
   }, [fetchChatData]);
+
+  useEffect(() => {
+    if (chatInfo?.otherPartyAvatarUrl) {
+      ImageCacheService.getCachedImageUri(chatInfo.otherPartyAvatarUrl).then(cachedUri => {
+        setCachedAvatarUri(cachedUri);
+      });
+    }
+  }, [chatInfo?.otherPartyAvatarUrl]);
 
   useFocusEffect(
     useCallback(() => {
@@ -297,13 +321,34 @@ export default function ChatScreen() {
           return (
             <>
               <View style={[styles.profileContainer, isRTL && styles.profileContainerRTL]}>
-                <View style={styles.profilePicture}>
-                  <Text style={styles.profileInitials}>{initials}</Text>
-                </View>
+                {chatInfo.otherPartyAvatarUrl ? (
+                  <TouchableOpacity
+                    onPress={() => {
+                      setViewerImageUri(cachedAvatarUri || chatInfo.otherPartyAvatarUrl);
+                      setImageViewerVisible(true);
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <Image
+                      source={{ uri: cachedAvatarUri || chatInfo.otherPartyAvatarUrl }}
+                      style={styles.profilePicture}
+                      resizeMode="cover"
+                    />
+                  </TouchableOpacity>
+                ) : (
+                  <LinearGradient
+                    colors={['#2563eb', '#9333ea']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 1 }}
+                    style={styles.profilePicture}
+                  >
+                    <Text style={styles.profileInitials}>{initials}</Text>
+                  </LinearGradient>
+                )}
                 {chatInfo.otherPartyIsOnline !== undefined && (
                   <View style={[
                     styles.onlineIndicator,
-                    !chatInfo.otherPartyIsOnline && styles.offlineIndicator
+                    { backgroundColor: chatInfo.otherPartyIsOnline ? '#00c950' : '#9ca3af' }
                   ]} />
                 )}
               </View>
@@ -454,10 +499,40 @@ export default function ChatScreen() {
             )}
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
-    </View>
-  );
-}
+        </KeyboardAvoidingView>
+
+        {/* Image Viewer Modal */}
+        <Modal
+          visible={imageViewerVisible}
+          transparent={true}
+          animationType="fade"
+          onRequestClose={() => setImageViewerVisible(false)}
+        >
+          <TouchableWithoutFeedback onPress={() => setImageViewerVisible(false)}>
+            <View style={styles.imageViewerContainer}>
+              <TouchableWithoutFeedback>
+                <View style={styles.imageViewerContent}>
+                  <TouchableOpacity
+                    style={styles.closeButton}
+                    onPress={() => setImageViewerVisible(false)}
+                  >
+                    <X size={24} color="#ffffff" />
+                  </TouchableOpacity>
+                  {viewerImageUri && (
+                    <Image
+                      source={{ uri: viewerImageUri }}
+                      style={styles.fullSizeImage}
+                      resizeMode="contain"
+                    />
+                  )}
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+      </View>
+    );
+  }
 
 const styles = StyleSheet.create({
   safeArea: {
@@ -746,6 +821,34 @@ const styles = StyleSheet.create({
     color: '#6a7282',
     textAlign: 'center',
     lineHeight: 20,
+  },
+  imageViewerContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageViewerContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    zIndex: 1,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  fullSizeImage: {
+    width: '100%',
+    height: '100%',
   },
 });
 

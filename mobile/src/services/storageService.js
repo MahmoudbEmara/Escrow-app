@@ -1,5 +1,5 @@
 import { supabase } from '../lib/supabase';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 
@@ -28,31 +28,114 @@ const getBucket = (bucketName) => {
 export const uploadFile = async (bucket, path, file, options = {}) => {
   try {
     let fileData;
+    let contentType;
 
     // Handle different file input types
     if (typeof file === 'string') {
-      // If it's a URI (from ImagePicker or DocumentPicker)
-      const response = await fetch(file);
-      const blob = await response.blob();
-      fileData = blob;
+      // If it's a URI string, create a file object for React Native
+      contentType = options.contentType || 'application/octet-stream';
+      const ext = path.split('.').pop().toLowerCase();
+      const mimeTypes = {
+        jpg: 'image/jpeg',
+        jpeg: 'image/jpeg',
+        png: 'image/png',
+        gif: 'image/gif',
+        webp: 'image/webp',
+      };
+      if (mimeTypes[ext] && contentType === 'application/octet-stream') {
+        contentType = mimeTypes[ext];
+      }
+      fileData = {
+        uri: file,
+        type: contentType,
+        name: path.split('/').pop(),
+      };
     } else if (file instanceof Blob || file instanceof File) {
+      // Web Blob/File - use directly
       fileData = file;
+      contentType = options.contentType || file.type || 'application/octet-stream';
     } else if (file.uri) {
       // React Native file object with URI
-      const response = await fetch(file.uri);
-      const blob = await response.blob();
-      fileData = blob;
+      contentType = file.type || file.mimeType || options.contentType || 'application/octet-stream';
+      
+      // Ensure contentType is a valid image type for images
+      if (contentType === 'application/octet-stream' || contentType === 'application/json') {
+        const ext = path.split('.').pop().toLowerCase();
+        const mimeTypes = {
+          jpg: 'image/jpeg',
+          jpeg: 'image/jpeg',
+          png: 'image/png',
+          gif: 'image/gif',
+          webp: 'image/webp',
+        };
+        if (mimeTypes[ext]) {
+          contentType = mimeTypes[ext];
+        } else {
+          contentType = 'image/jpeg';
+        }
+      }
+      
+      // For React Native, read file as Base64 and convert to ArrayBuffer
+      // This is the recommended approach per Supabase documentation
+      // Reference: https://supabase.com/blog/react-native-storage
+      // Alternative approach: https://arcdev.medium.com/how-to-convert-an-image-into-base64-in-react-native-cbadbe72ec78
+      try {
+        // Read file as base64 using legacy FileSystem API
+        const base64 = await FileSystem.readAsStringAsync(file.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        
+        // Convert Base64 string to ArrayBuffer
+        // Manual base64 decoding for React Native (no Buffer available)
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+        const lookup = new Uint8Array(256);
+        for (let i = 0; i < chars.length; i++) {
+          lookup[chars.charCodeAt(i)] = i;
+        }
+        
+        let bufferLength = base64.length * 0.75;
+        if (base64[base64.length - 1] === '=') {
+          bufferLength--;
+          if (base64[base64.length - 2] === '=') {
+            bufferLength--;
+          }
+        }
+        
+        const bytes = new Uint8Array(bufferLength);
+        let p = 0;
+        for (let i = 0; i < base64.length; i += 4) {
+          const encoded1 = lookup[base64.charCodeAt(i)];
+          const encoded2 = lookup[base64.charCodeAt(i + 1)];
+          const encoded3 = lookup[base64.charCodeAt(i + 2)];
+          const encoded4 = lookup[base64.charCodeAt(i + 3)];
+          
+          bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
+          bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
+          bytes[p++] = ((encoded3 & 3) << 6) | (encoded4 & 63);
+        }
+        
+        fileData = bytes.buffer;
+      } catch (readError) {
+        console.error('Error reading file as base64, trying direct upload:', readError);
+        // Fallback: use file object directly (some Supabase versions support this)
+        fileData = {
+          uri: file.uri,
+          name: file.name || path.split('/').pop(),
+        };
+      }
     } else {
       throw new Error('Invalid file type');
     }
 
-    const bucketRef = getBucket(bucket);
-    const { data, error } = await bucketRef.upload(path, fileData, {
+    // Build upload options - always set contentType here
+    const uploadOptions = {
       cacheControl: options.cacheControl || '3600',
       upsert: options.upsert || false,
-      contentType: options.contentType || fileData.type,
-      ...options,
-    });
+      contentType: contentType,
+    };
+
+    const bucketRef = getBucket(bucket);
+    const { data, error } = await bucketRef.upload(path, fileData, uploadOptions);
 
     if (error) {
       throw error;
