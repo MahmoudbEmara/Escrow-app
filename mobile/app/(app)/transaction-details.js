@@ -2,7 +2,7 @@ import React, { useState, useContext, useEffect, useRef, useCallback } from 'rea
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useLocalSearchParams } from 'expo-router';
-import { CircleCheckBig, AlertTriangle, MessageCircle, CircleCheck, X, CircleX } from 'lucide-react-native';
+import { CircleCheckBig, AlertTriangle, MessageCircle, CircleCheck, X, CircleX, Banknote, Send, BadgeMinus } from 'lucide-react-native';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import * as TransactionService from '../../src/services/transactionService';
@@ -532,9 +532,9 @@ export default function TransactionDetailsScreen() {
         {/* Progress Bar */}
         <TransactionProgressBar status={currentState} isRTL={isRTL} />
 
-        {/* Transaction Info Card */}
-        <View style={styles.infoCard}>
-          <Text style={styles.sectionTitle}>Transaction Information</Text>
+          {/* Transaction Info Card */}
+          <View style={styles.infoCard}>
+            <Text style={[styles.transactionTitle, isRTL && styles.textRTL]}>{transaction.title || 'Transaction Information'}</Text>
           
           <View style={styles.infoRowsContainer}>
             {/* Status */}
@@ -728,7 +728,8 @@ export default function TransactionDetailsScreen() {
                     style={[styles.acceptButton, isRTL && styles.acceptButtonRTL]}
                     onPress={() => handleStateTransition('fund', state)}
                   >
-                    <Text style={styles.acceptButtonText}>💰 {t('fundTransaction') || 'Fund Transaction'}</Text>
+                    <Banknote size={20} color="#ffffff" strokeWidth={2} />
+                    <Text style={styles.acceptButtonText}>{t('pay') || 'Pay'}</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
                     style={[styles.rejectButton, isRTL && styles.rejectButtonRTL]}
@@ -845,21 +846,50 @@ export default function TransactionDetailsScreen() {
                     <TouchableOpacity
                       key={index}
                       style={
-                        actionItem.action === 'dispute' || actionItem.action === 'cancel'
+                        actionItem.action === 'dispute'
                           ? styles.disputeButton
+                          : actionItem.action === 'cancel'
+                          ? [styles.rejectButton, isRTL && styles.rejectButtonRTL]
+                          : actionItem.action === 'start_work'
+                          ? [styles.startWorkButton, isRTL && styles.startWorkButtonRTL]
+                          : actionItem.action === 'deliver'
+                          ? [styles.acceptButton, isRTL && styles.acceptButtonRTL]
                           : styles.confirmButton
                       }
                       onPress={() => handleStateTransition(actionItem.action, state)}
                     >
-                      <Text
-                        style={
-                          actionItem.action === 'dispute' || actionItem.action === 'cancel'
-                            ? styles.disputeButtonText
-                            : styles.confirmButtonText
-                        }
-                      >
-                        {actionItem.label}
-                      </Text>
+                      {actionItem.action === 'cancel' ? (
+                        <>
+                          <CircleX size={20} color="#ffffff" strokeWidth={2} />
+                          <Text style={styles.rejectButtonText}>
+                            {actionItem.label}
+                          </Text>
+                        </>
+                      ) : actionItem.action === 'start_work' ? (
+                        <>
+                          <Send size={20} color="#00a63e" strokeWidth={2} />
+                          <Text style={styles.startWorkButtonText}>
+                            {actionItem.label}
+                          </Text>
+                        </>
+                      ) : actionItem.action === 'deliver' ? (
+                        <>
+                          <CircleCheck size={20} color="#ffffff" strokeWidth={2} />
+                          <Text style={styles.acceptButtonText}>
+                            {actionItem.label}
+                          </Text>
+                        </>
+                      ) : (
+                        <Text
+                          style={
+                            actionItem.action === 'dispute'
+                              ? styles.disputeButtonText
+                              : styles.confirmButtonText
+                          }
+                        >
+                          {actionItem.label}
+                        </Text>
+                      )}
                     </TouchableOpacity>
                   );
                 })}
@@ -870,10 +900,11 @@ export default function TransactionDetailsScreen() {
           {/* Delete button - only show for cancelled transactions */}
           {(currentState === TransactionState.CANCELLED || statusLower === 'cancelled' || statusLower === 'canceled') && (
             <TouchableOpacity
-              style={styles.deleteButton}
+              style={[styles.deleteButton, isRTL && styles.deleteButtonRTL]}
               onPress={handleDeleteTransaction}
             >
-              <Text style={styles.deleteButtonText}>🗑️ {t('delete') || 'Delete Transaction'}</Text>
+              <BadgeMinus size={20} color="#e7000b" strokeWidth={2} />
+              <Text style={styles.deleteButtonText}>{t('delete') || 'Delete'}</Text>
             </TouchableOpacity>
           )}
 
@@ -982,6 +1013,14 @@ const styles = StyleSheet.create({
     color: '#101828',
     marginBottom: 16,
     lineHeight: 24,
+  },
+  transactionTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#101828',
+    marginBottom: 16,
+    lineHeight: 28,
+    textAlign: 'center',
   },
   infoRowsContainer: {
     gap: 0,
@@ -1142,17 +1181,27 @@ const styles = StyleSheet.create({
     lineHeight: 24,
   },
   deleteButton: {
-    paddingVertical: 16,
-    borderRadius: 12,
-    backgroundColor: '#fee2e2',
+    flex: 1,
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
     borderWidth: 2,
-    borderColor: '#ef4444',
+    borderColor: '#e7000b',
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 24,
+  },
+  deleteButtonRTL: {
+    flexDirection: 'row-reverse',
   },
   deleteButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#dc2626',
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#e7000b',
+    fontFamily: 'Arimo',
+    lineHeight: 24,
   },
   loadingContainer: {
     flex: 1,
@@ -1210,6 +1259,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'normal',
     color: '#ffffff',
+    fontFamily: 'Arimo',
+    lineHeight: 24,
+  },
+  startWorkButton: {
+    flex: 1,
+    height: 56,
+    borderRadius: 14,
+    backgroundColor: '#ffffff',
+    borderWidth: 2,
+    borderColor: '#00a63e',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingHorizontal: 24,
+  },
+  startWorkButtonRTL: {
+    flexDirection: 'row-reverse',
+  },
+  startWorkButtonText: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#00a63e',
     fontFamily: 'Arimo',
     lineHeight: 24,
   },
