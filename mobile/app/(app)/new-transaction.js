@@ -2,6 +2,8 @@ import React, { useState, useContext, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { Trash2, ArrowLeft, ShoppingBag, Briefcase, Monitor, FileText, Info, User, Tag, Mail, DollarSign, CheckCircle, Calendar, Plus, Circle, X, Banknote } from 'lucide-react-native';
 import { AuthContext } from '../../src/context/AuthContext';
 import * as DatabaseService from '../../src/services/databaseService';
 import { calculateTransactionFee, getFeePercentageDisplay } from '../../src/constants/fees';
@@ -9,9 +11,9 @@ import { calculateTransactionFee, getFeePercentageDisplay } from '../../src/cons
 export default function NewTransactionScreen() {
   const router = useRouter();
   const { state } = useContext(AuthContext);
+  const insets = useSafeAreaInsets();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const scrollViewRef = useRef(null);
-  const deliveryDateInputRef = useRef(null);
+  const step3ScrollViewRef = useRef(null);
   const [formData, setFormData] = useState({
     title: '',
     role: '',
@@ -25,13 +27,12 @@ export default function NewTransactionScreen() {
     deliveryDate: '',
   });
 
-  const [showSummary, setShowSummary] = useState(false);
+  const [currentStep, setCurrentStep] = useState(1);
+  const [selectedTransactionType, setSelectedTransactionType] = useState(null);
   const [otherPartyName, setOtherPartyName] = useState('');
   const [checkingUser, setCheckingUser] = useState(false);
+  const [otherPartyId, setOtherPartyId] = useState(null);
 
-  const roles = ['Buyer', 'Seller'];
-  const categories = ['Product', 'Service', 'Digital', 'Other'];
-  const feesOptions = ['Buyer', 'Seller', 'Split Fees'];
 
   const maskUserId = (userId) => {
     if (!userId) return '';
@@ -62,12 +63,14 @@ export default function NewTransactionScreen() {
   const handleUserIdChange = (text) => {
     setFormData({ ...formData, userId: text });
     setOtherPartyName(''); // Clear name when input changes
+    setOtherPartyId(null); // Clear ID when input changes
   };
 
   // Debounced user lookup to fetch full name
   useEffect(() => {
     if (!formData.userId || !formData.userId.trim()) {
       setOtherPartyName('');
+      setOtherPartyId(null);
       setCheckingUser(false);
       return;
     }
@@ -82,7 +85,16 @@ export default function NewTransactionScreen() {
         
         if (result.error || !result.data) {
           setOtherPartyName('');
+          setOtherPartyId(null);
         } else {
+          // Check if user is trying to create transaction with themselves
+          if (result.data.id === state.user?.id) {
+            setOtherPartyName('');
+            setOtherPartyId(null);
+            return;
+          }
+          
+          setOtherPartyId(result.data.id);
           // Get the user's profile to get their full name
           const profileResult = await DatabaseService.getUserProfile(result.data.id);
           if (profileResult.data?.name) {
@@ -94,16 +106,19 @@ export default function NewTransactionScreen() {
       } catch (error) {
         console.error('Error fetching user name:', error);
         setOtherPartyName('');
+        setOtherPartyId(null);
       } finally {
         setCheckingUser(false);
       }
     }, 500); // 500ms debounce
 
     return () => clearTimeout(timeoutId);
-  }, [formData.userId]);
+  }, [formData.userId, state.user?.id]);
 
   useFocusEffect(
     React.useCallback(() => {
+      setCurrentStep(1);
+      setSelectedTransactionType(null);
       setFormData({
         title: '',
         role: '',
@@ -116,8 +131,8 @@ export default function NewTransactionScreen() {
         confirmed: false,
         deliveryDate: '',
       });
-      setShowSummary(false);
       setOtherPartyName('');
+      setOtherPartyId(null);
       setIsSubmitting(false);
       setCheckingUser(false);
     }, [])
@@ -130,8 +145,20 @@ export default function NewTransactionScreen() {
   };
 
   const handleAddTerm = () => {
-    setFormData({ ...formData, terms: [...formData.terms, ''] });
+    const newTerms = [...formData.terms, ''];
+    setFormData({ ...formData, terms: newTerms });
   };
+
+  useEffect(() => {
+    if (currentStep === 3 && step3ScrollViewRef.current) {
+      setTimeout(() => {
+        step3ScrollViewRef.current?.scrollTo({
+          y: 0,
+          animated: false
+        });
+      }, 100);
+    }
+  }, [currentStep]);
 
   const handleRemoveTerm = (index) => {
     // Only allow removal if there's more than one term
@@ -141,56 +168,6 @@ export default function NewTransactionScreen() {
     }
   };
 
-  const getTermsArray = () => {
-    if (!formData.terms || formData.terms.length === 0) return [];
-    return formData.terms.filter(term => term.trim() !== '');
-  };
-
-  const isFormValid = () => {
-    // Check if all required fields are filled
-    const hasRequiredFields = (
-      formData.title &&
-      formData.role &&
-      formData.userId &&
-      formData.amount &&
-      formData.terms.length > 0 &&
-      formData.terms.some(term => term.trim() !== '') &&
-      formData.category &&
-      formData.feesResponsibility
-    );
-    
-    // If userId is provided, check if user was found
-    if (formData.userId && formData.userId.trim()) {
-      // If still checking, don't allow proceed
-      if (checkingUser) {
-        return false;
-      }
-      // If user ID provided but name not found, don't allow proceed
-      if (!otherPartyName) {
-        return false;
-      }
-    }
-    
-    return hasRequiredFields;
-  };
-
-  const handleContinue = () => {
-    if (!isFormValid()) {
-      // Check if the issue is with user not found
-      if (formData.userId && formData.userId.trim() && !checkingUser && !otherPartyName) {
-        Alert.alert('Error', 'User not found. Please check the username or email and try again.');
-        return;
-      }
-      // Check if still checking user
-      if (checkingUser) {
-        Alert.alert('Please wait', 'Checking user...');
-        return;
-      }
-      Alert.alert('Error', 'Please fill in all required fields');
-      return;
-    }
-    setShowSummary(true);
-  };
 
   const handleConfirm = async () => {
     if (!formData.confirmed) {
@@ -301,7 +278,6 @@ export default function NewTransactionScreen() {
         confirmed: false,
         deliveryDate: '',
       });
-      setShowSummary(false);
       setOtherPartyName('');
       setIsSubmitting(false);
       setCheckingUser(false);
@@ -321,6 +297,572 @@ export default function NewTransactionScreen() {
       setIsSubmitting(false);
     }
   };
+
+  const transactionTypes = [
+    { id: 'product_sale', name: 'Product Sale', icon: ShoppingBag, color: '#2563eb', description: 'Quick setup' },
+    { id: 'freelance_service', name: 'Freelance Service', icon: Briefcase, color: '#9333ea', description: 'Quick setup' },
+    { id: 'digital_product', name: 'Digital Product', icon: Monitor, color: '#16a34a', description: 'Quick setup' },
+    { id: 'custom', name: 'Custom', icon: FileText, color: '#ea580c', description: 'Quick setup' },
+  ];
+
+  const handleTransactionTypeSelect = (type) => {
+    setSelectedTransactionType(type);
+    setCurrentStep(2);
+  };
+
+  const handleStep2Continue = () => {
+    if (!formData.role || !formData.title || !formData.userId || !formData.amount) {
+      Alert.alert('Error', 'Please fill in all required fields');
+      return;
+    }
+    if (formData.userId && !otherPartyName && !checkingUser) {
+      Alert.alert('Error', 'User not found. Please check the username or email and try again.');
+      return;
+    }
+    setCurrentStep(3);
+  };
+
+  const handleStep3Create = async () => {
+    if (!formData.confirmed) {
+      Alert.alert('Error', 'Please confirm that you agree to the terms and conditions');
+      return;
+    }
+    await handleConfirm();
+  };
+
+  if (currentStep === 1) {
+    return (
+      <View style={styles.step1Container}>
+        <StatusBar barStyle="dark-content" />
+        <View style={[styles.step1Header, { paddingTop: insets.top + 24 }]}>
+          <View style={styles.step1HeaderContent}>
+            <TouchableOpacity onPress={() => router.back()} style={styles.step1BackButton}>
+              <ArrowLeft size={24} color="#101828" />
+            </TouchableOpacity>
+            <View style={styles.step1HeaderText}>
+              <Text style={styles.step1Title}>New Transaction</Text>
+              <Text style={styles.step1Subtitle}>Choose a transaction type</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.step1ProgressSection}>
+          <View style={styles.step1ProgressHeader}>
+            <Text style={styles.step1ProgressText}>Step 1 of 3</Text>
+            <Text style={styles.step1ProgressText}>33%</Text>
+          </View>
+          <View style={styles.step1ProgressBar}>
+            <View style={[styles.step1ProgressFill, { width: '33%' }]} />
+          </View>
+        </View>
+
+        <ScrollView 
+          style={styles.step1ScrollView}
+          contentContainerStyle={styles.step1ScrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.step1Content}>
+            <View style={styles.step1QuestionSection}>
+              <Text style={styles.step1Question}>What type of transaction is this?</Text>
+              <Text style={styles.step1Description}>
+                Select a template to get started quickly with pre-filled terms
+              </Text>
+            </View>
+
+            <View style={styles.step1Grid}>
+              {transactionTypes.map((type) => {
+                const IconComponent = type.icon;
+                return (
+                  <TouchableOpacity
+                    key={type.id}
+                    style={[
+                      styles.step1TypeCard,
+                      selectedTransactionType?.id === type.id && styles.step1TypeCardSelected
+                    ]}
+                    onPress={() => handleTransactionTypeSelect(type)}
+                  >
+                    <View style={[styles.step1TypeIconContainer, { backgroundColor: type.color + '15' }]}>
+                      <IconComponent size={24} color={type.color} />
+                    </View>
+                    <Text style={styles.step1TypeName}>{type.name}</Text>
+                    <Text style={styles.step1TypeDescription}>{type.description}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+
+            <View style={styles.step1InfoBox}>
+              <Info size={20} color="#1c398e" />
+              <Text style={styles.step1InfoText}>
+                Templates include suggested terms that you can customize in the next step.
+              </Text>
+            </View>
+          </View>
+        </ScrollView>
+      </View>
+    );
+  }
+
+  if (currentStep === 2) {
+    const transactionTypeName = selectedTransactionType?.name?.toLowerCase() || 'transaction';
+    
+    return (
+      <View style={styles.step2Container}>
+        <StatusBar barStyle="dark-content" />
+        <View style={[styles.step2Header, { paddingTop: insets.top + 24 }]}>
+          <View style={styles.step2HeaderContent}>
+            <TouchableOpacity onPress={() => setCurrentStep(1)} style={styles.step2BackButton}>
+              <ArrowLeft size={24} color="#101828" />
+            </TouchableOpacity>
+            <View style={styles.step2HeaderText}>
+              <Text style={styles.step2Title}>Transaction Details</Text>
+              <Text style={styles.step2Subtitle}>{transactionTypeName} transaction</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.step2ProgressSection}>
+          <View style={styles.step2ProgressHeader}>
+            <Text style={styles.step2ProgressText}>Step 2 of 3</Text>
+            <Text style={styles.step2ProgressText}>66%</Text>
+          </View>
+          <View style={styles.step2ProgressBar}>
+            <View style={[styles.step2ProgressFill, { width: '66%' }]} />
+          </View>
+        </View>
+
+        <ScrollView 
+          style={styles.step2ScrollView}
+          contentContainerStyle={styles.step2ScrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.step2Content}>
+            <View style={styles.step2Card}>
+              <View style={styles.step2CardHeader}>
+                <User size={20} color="#101828" />
+                <Text style={styles.step2CardLabel}>Your Role</Text>
+              </View>
+              <View style={styles.step2RoleButtons}>
+                <TouchableOpacity
+                  style={[
+                    styles.step2RoleButton,
+                    formData.role === 'Buyer' && styles.step2RoleButtonSelected
+                  ]}
+                  onPress={() => setFormData({ ...formData, role: 'Buyer' })}
+                >
+                  <Text style={[
+                    styles.step2RoleButtonText,
+                    formData.role === 'Buyer' && styles.step2RoleButtonTextSelected
+                  ]}>Buyer</Text>
+                  <Text style={[
+                    styles.step2RoleButtonSubtext,
+                    formData.role === 'Buyer' && styles.step2RoleButtonSubtextSelected
+                  ]}>Purchasing</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.step2RoleButton,
+                    formData.role === 'Seller' && styles.step2RoleButtonSelected
+                  ]}
+                  onPress={() => setFormData({ ...formData, role: 'Seller' })}
+                >
+                  <Text style={[
+                    styles.step2RoleButtonText,
+                    formData.role === 'Seller' && styles.step2RoleButtonTextSelected
+                  ]}>Seller</Text>
+                  <Text style={[
+                    styles.step2RoleButtonSubtext,
+                    formData.role === 'Seller' && styles.step2RoleButtonSubtextSelected
+                  ]}>Selling</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.step2Card}>
+              <View style={styles.step2CardHeader}>
+                <Tag size={20} color="#101828" />
+                <Text style={styles.step2CardLabel}>Transaction Title</Text>
+              </View>
+              <TextInput
+                style={styles.step2Input}
+                value={formData.title}
+                onChangeText={(text) => setFormData({ ...formData, title: text })}
+                placeholder="Enter transaction title"
+                placeholderTextColor="rgba(10, 10, 10, 0.5)"
+              />
+              <Text style={styles.step2HelperText}>
+                Give your transaction a clear, descriptive name
+              </Text>
+            </View>
+
+            <View style={styles.step2Card}>
+              <View style={styles.step2CardHeader}>
+                <Mail size={20} color="#101828" />
+                <Text style={styles.step2CardLabel}>
+                  {formData.role === 'Buyer' ? 'Seller' : 'Buyer'} Information
+                </Text>
+              </View>
+              <TextInput
+                style={styles.step2Input}
+                value={formData.userId}
+                onChangeText={handleUserIdChange}
+                placeholder="Enter username or email"
+                placeholderTextColor="rgba(10, 10, 10, 0.5)"
+                autoCapitalize="none"
+                keyboardType="email-address"
+              />
+              {checkingUser && (
+                <View style={styles.step2CheckingContainer}>
+                  <ActivityIndicator size="small" color="#6a7282" />
+                  <Text style={styles.step2CheckingText}>Checking user...</Text>
+                </View>
+              )}
+              {!checkingUser && otherPartyName && (
+                <View style={styles.step2SuccessBox}>
+                  <CheckCircle size={20} color="#008236" />
+                  <View style={styles.step2SuccessTextContainer}>
+                    <Text style={styles.step2SuccessTitle}>User found</Text>
+                    <Text style={styles.step2SuccessName}>{otherPartyName}</Text>
+                  </View>
+                </View>
+              )}
+              {!checkingUser && formData.userId && !otherPartyName && (
+                <View style={styles.step2ErrorBox}>
+                  <X size={20} color="#ef4444" />
+                  <View style={styles.step2ErrorTextContainer}>
+                    <Text style={styles.step2ErrorTitle}>User not found</Text>
+                    <Text style={styles.step2ErrorSubtext}>Please check the username or email and try again</Text>
+                  </View>
+                </View>
+              )}
+              {!checkingUser && formData.userId && otherPartyId === state.user?.id && (
+                <View style={styles.step2ErrorBox}>
+                  <X size={20} color="#ef4444" />
+                  <View style={styles.step2ErrorTextContainer}>
+                    <Text style={styles.step2ErrorTitle}>Cannot create transaction with yourself</Text>
+                    <Text style={styles.step2ErrorSubtext}>Please enter a different user</Text>
+                  </View>
+                </View>
+              )}
+            </View>
+
+            <View style={styles.step2Card}>
+              <View style={styles.step2CardHeader}>
+                <Banknote size={20} color="#101828" />
+                <Text style={styles.step2CardLabel}>Transaction Amount</Text>
+              </View>
+              <View style={styles.step2AmountInputContainer}>
+                <Text style={styles.step2CurrencySymbol}>EGP</Text>
+                <TextInput
+                  style={styles.step2AmountInput}
+                  value={formData.amount}
+                  onChangeText={(text) => setFormData({ ...formData, amount: text.replace(/[^0-9.]/g, '') })}
+                  placeholder="0.00"
+                  placeholderTextColor="rgba(10, 10, 10, 0.5)"
+                  keyboardType="decimal-pad"
+                />
+              </View>
+              {formData.amount && parseFloat(formData.amount) > 0 && (
+                <View style={styles.step2AmountBreakdown}>
+                  <View style={styles.step2BreakdownRow}>
+                    <Text style={styles.step2BreakdownLabel}>Amount:</Text>
+                    <Text style={styles.step2BreakdownValue}>{parseFloat(formData.amount).toLocaleString()} EGP</Text>
+                  </View>
+                  <View style={styles.step2BreakdownRow}>
+                    <Text style={styles.step2BreakdownLabel}>Service Fee:</Text>
+                    <Text style={styles.step2BreakdownValue}>{calculateTransactionFee(parseFloat(formData.amount)).toFixed(2)} EGP</Text>
+                  </View>
+                  <View style={[styles.step2BreakdownRow, styles.step2BreakdownRowTotal]}>
+                    <Text style={[styles.step2BreakdownLabel, styles.step2BreakdownLabelTotal]}>Total:</Text>
+                    <Text style={[styles.step2BreakdownValue, styles.step2BreakdownValueTotal]}>
+                      {(parseFloat(formData.amount) + calculateTransactionFee(parseFloat(formData.amount))).toFixed(2)} EGP
+                    </Text>
+                  </View>
+                </View>
+              )}
+            </View>
+          </View>
+        </ScrollView>
+
+        <View style={[styles.step2Footer, { paddingBottom: insets.bottom }]}>
+          <TouchableOpacity
+            style={[
+              styles.step2ContinueButton,
+              (!formData.role || !formData.title || !formData.userId || !formData.amount || (formData.userId && !otherPartyName && !checkingUser)) && styles.step2ContinueButtonDisabled
+            ]}
+            disabled={!formData.role || !formData.title || !formData.userId || !formData.amount || (formData.userId && !otherPartyName && !checkingUser)}
+            onPress={handleStep2Continue}
+          >
+            <Text style={styles.step2ContinueButtonText}>Continue to Terms</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  if (currentStep === 3) {
+    const serviceFee = formData.amount ? calculateTransactionFee(parseFloat(formData.amount)) : 0;
+    const totalAmount = formData.amount ? parseFloat(formData.amount) + serviceFee : 0;
+    const splitFee = serviceFee / 2;
+    
+    return (
+      <View style={styles.step3Container}>
+        <StatusBar barStyle="dark-content" />
+        <View style={[styles.step3Header, { paddingTop: insets.top + 24 }]}>
+          <View style={styles.step3HeaderContent}>
+            <TouchableOpacity onPress={() => setCurrentStep(2)} style={styles.step3BackButton}>
+              <ArrowLeft size={24} color="#101828" />
+            </TouchableOpacity>
+            <View style={styles.step3HeaderText}>
+              <Text style={styles.step3Title}>Terms & Review</Text>
+              <Text style={styles.step3Subtitle}>Final step</Text>
+            </View>
+          </View>
+        </View>
+
+        <View style={styles.step3ProgressSection}>
+          <View style={styles.step3ProgressHeader}>
+            <Text style={styles.step3ProgressText}>Step 3 of 3</Text>
+            <Text style={styles.step3ProgressText}>100%</Text>
+          </View>
+          <View style={styles.step3ProgressBar}>
+            <View style={[styles.step3ProgressFill, { width: '100%' }]} />
+          </View>
+        </View>
+
+        <ScrollView 
+          ref={step3ScrollViewRef}
+          style={styles.step3ScrollView}
+          contentContainerStyle={styles.step3ScrollContent}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          <View style={styles.step3Content}>
+            <View style={styles.step3Card}>
+              <View style={styles.step3CardHeader}>
+                <FileText size={20} color="#101828" />
+                <Text style={styles.step3CardLabel}>Transaction Terms</Text>
+              </View>
+              <View style={styles.step3TermsList}>
+                {formData.terms.map((term, index) => (
+                  <View key={index} style={styles.step3TermRow}>
+                    <TextInput
+                      style={styles.step3TermInput}
+                      value={term}
+                      onChangeText={(text) => handleTermChange(index, text)}
+                      placeholder="Enter a term"
+                      placeholderTextColor="rgba(10, 10, 10, 0.5)"
+                    />
+                    {formData.terms.length > 1 && (
+                      <TouchableOpacity
+                        style={styles.step3DeleteTermButton}
+                        onPress={() => handleRemoveTerm(index)}
+                      >
+                        <Trash2 size={20} color="#dc2626" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ))}
+              </View>
+              <TouchableOpacity
+                style={styles.step3AddTermButton}
+                onPress={() => {
+                  const newTerms = [...formData.terms, ''];
+                  setFormData({ ...formData, terms: newTerms });
+                }}
+              >
+                <Plus size={16} color="#155dfc" />
+                <Text style={styles.step3AddTermText}>Add Another Term</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.step3Card}>
+              <View style={styles.step3CardHeader}>
+                <Calendar size={20} color="#101828" />
+                <Text style={styles.step3CardLabel}>Expected Delivery Date (Optional)</Text>
+              </View>
+              <TextInput
+                style={styles.step3Input}
+                value={formData.deliveryDate}
+                onChangeText={(text) => {
+                  const numbers = text.replace(/\D/g, '');
+                  let formatted = numbers;
+                  if (numbers.length > 2) {
+                    formatted = numbers.substring(0, 2) + '-' + numbers.substring(2);
+                  }
+                  if (numbers.length > 4) {
+                    formatted = numbers.substring(0, 2) + '-' + numbers.substring(2, 4) + '-' + numbers.substring(4, 8);
+                  }
+                  setFormData({ ...formData, deliveryDate: formatted });
+                }}
+                placeholder="DD-MM-YYYY"
+                placeholderTextColor="rgba(10, 10, 10, 0.5)"
+                keyboardType="numeric"
+                maxLength={10}
+              />
+            </View>
+
+            <View style={styles.step3Card}>
+              <View style={styles.step3CardHeader}>
+                <Banknote size={20} color="#101828" />
+                <Text style={styles.step3CardLabel}>Who Pays the Service Fee?</Text>
+              </View>
+              <View style={styles.step3FeeOptions}>
+                <TouchableOpacity
+                  style={[
+                    styles.step3FeeOption,
+                    formData.feesResponsibility === 'Buyer' && styles.step3FeeOptionSelected
+                  ]}
+                  onPress={() => setFormData({ ...formData, feesResponsibility: 'Buyer' })}
+                >
+                  <View style={styles.step3FeeOptionContent}>
+                    <View style={[
+                      styles.step3RadioButton,
+                      formData.feesResponsibility === 'Buyer' && styles.step3RadioButtonSelected
+                    ]}>
+                      {formData.feesResponsibility === 'Buyer' && <View style={styles.step3RadioInner} />}
+                    </View>
+                    <Text style={[
+                      styles.step3FeeOptionText,
+                      formData.feesResponsibility === 'Buyer' && styles.step3FeeOptionTextSelected
+                    ]}>Buyer pays</Text>
+                  </View>
+                  <Text style={styles.step3FeeAmount}>{serviceFee.toFixed(2)} EGP</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.step3FeeOption,
+                    formData.feesResponsibility === 'Seller' && styles.step3FeeOptionSelected
+                  ]}
+                  onPress={() => setFormData({ ...formData, feesResponsibility: 'Seller' })}
+                >
+                  <View style={styles.step3FeeOptionContent}>
+                    <View style={[
+                      styles.step3RadioButton,
+                      formData.feesResponsibility === 'Seller' && styles.step3RadioButtonSelected
+                    ]}>
+                      {formData.feesResponsibility === 'Seller' && <View style={styles.step3RadioInner} />}
+                    </View>
+                    <Text style={[
+                      styles.step3FeeOptionText,
+                      formData.feesResponsibility === 'Seller' && styles.step3FeeOptionTextSelected
+                    ]}>Seller pays</Text>
+                  </View>
+                  <Text style={styles.step3FeeAmount}>{serviceFee.toFixed(2)} EGP</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.step3FeeOption,
+                    formData.feesResponsibility === 'Split Fees' && styles.step3FeeOptionSelected
+                  ]}
+                  onPress={() => setFormData({ ...formData, feesResponsibility: 'Split Fees' })}
+                >
+                  <View style={styles.step3FeeOptionContent}>
+                    <View style={[
+                      styles.step3RadioButton,
+                      formData.feesResponsibility === 'Split Fees' && styles.step3RadioButtonSelected
+                    ]}>
+                      {formData.feesResponsibility === 'Split Fees' && <View style={styles.step3RadioInner} />}
+                    </View>
+                    <Text style={[
+                      styles.step3FeeOptionText,
+                      formData.feesResponsibility === 'Split Fees' && styles.step3FeeOptionTextSelected
+                    ]}>Split 50/50</Text>
+                  </View>
+                  <Text style={styles.step3FeeAmount}>{splitFee.toFixed(2)} EGP each</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            <View style={styles.step3SummaryCard}>
+              <View style={styles.step3SummaryHeader}>
+                <CheckCircle size={20} color="#101828" />
+                <Text style={styles.step3SummaryTitle}>Transaction Summary</Text>
+              </View>
+              <View style={styles.step3SummaryContent}>
+                <View style={styles.step3SummaryRow}>
+                  <Text style={styles.step3SummaryLabel}>Title:</Text>
+                  <Text style={styles.step3SummaryValue}>{formData.title || '-'}</Text>
+                </View>
+                <View style={styles.step3SummaryRow}>
+                  <Text style={styles.step3SummaryLabel}>Buyer:</Text>
+                  <Text style={styles.step3SummaryValue}>
+                    {formData.role === 'Buyer' ? 'You' : (otherPartyName || '-')}
+                  </Text>
+                </View>
+                <View style={styles.step3SummaryRow}>
+                  <Text style={styles.step3SummaryLabel}>Seller:</Text>
+                  <Text style={styles.step3SummaryValue}>
+                    {formData.role === 'Seller' ? 'You' : (otherPartyName || '-')}
+                  </Text>
+                </View>
+                <View style={styles.step3SummaryRow}>
+                  <Text style={styles.step3SummaryLabel}>Amount:</Text>
+                  <Text style={styles.step3SummaryValue}>
+                    {formData.amount ? parseFloat(formData.amount).toLocaleString() + ' EGP' : '0 EGP'}
+                  </Text>
+                </View>
+                <View style={styles.step3SummaryRow}>
+                  <Text style={styles.step3SummaryLabel}>Delivery:</Text>
+                  <Text style={styles.step3SummaryValue}>
+                    {formData.deliveryDate || '-'}
+                  </Text>
+                </View>
+                <View style={styles.step3SummaryRow}>
+                  <Text style={styles.step3SummaryLabel}>Fees:</Text>
+                  <Text style={styles.step3SummaryValue}>
+                    {formData.feesResponsibility ? formData.feesResponsibility.toLowerCase() : '-'}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.step3AgreementCard}>
+              <TouchableOpacity
+                style={styles.step3CheckboxContainer}
+                onPress={() => setFormData({ ...formData, confirmed: !formData.confirmed })}
+              >
+                <View style={[
+                  styles.step3Checkbox,
+                  formData.confirmed && styles.step3CheckboxChecked
+                ]}>
+                  {formData.confirmed && <Text style={styles.step3Checkmark}>✓</Text>}
+                </View>
+                <View style={styles.step3CheckboxTextContainer}>
+                  <Text style={styles.step3CheckboxTitle}>
+                    I agree to the terms and conditions
+                  </Text>
+                  <Text style={styles.step3CheckboxSubtext}>
+                    By checking this box, you confirm that all information is correct and agree to the transaction terms.
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </ScrollView>
+
+        <View style={[styles.step3Footer, { paddingBottom: insets.bottom }]}>
+          <TouchableOpacity
+            style={[
+              styles.step3CreateButton,
+              (!formData.confirmed || isSubmitting) && styles.step3CreateButtonDisabled
+            ]}
+            disabled={!formData.confirmed || isSubmitting}
+            onPress={handleStep3Create}
+          >
+            <CheckCircle size={20} color={formData.confirmed ? "#ffffff" : "#9ca3af"} />
+            <Text style={[
+              styles.step3CreateButtonText,
+              (!formData.confirmed || isSubmitting) && styles.step3CreateButtonTextDisabled
+            ]}>
+              {isSubmitting ? 'Creating...' : 'Create Transaction'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   if (showSummary) {
     return (
@@ -561,7 +1103,7 @@ export default function NewTransactionScreen() {
                     style={styles.deleteTermButton}
                     onPress={() => handleRemoveTerm(index)}
                   >
-                    <Text style={styles.deleteTermIcon}>🗑️</Text>
+                    <Trash2 size={18} color="#dc2626" />
                   </TouchableOpacity>
                 )}
               </View>
@@ -671,338 +1213,848 @@ export default function NewTransactionScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: {
+  step1Container: {
     flex: 1,
+    backgroundColor: '#f9fafb',
+  },
+  step1Header: {
     backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    paddingBottom: 1,
+    paddingHorizontal: 24,
   },
-  keyboardAvoidingView: {
-    flex: 1,
-  },
-  scrollView: {
-    flex: 1,
-  },
-  scrollContent: {
-    paddingBottom: 100,
-  },
-  header: {
+  step1HeaderContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
+    gap: 12,
+    height: 44,
   },
-  backButton: {
-    width: 40,
-    height: 40,
+  step1BackButton: {
+    width: 24,
+    height: 24,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  backIcon: {
-    fontSize: 24,
-    color: '#0f172a',
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: '#0f172a',
-  },
-  placeholder: {
-    width: 40,
-  },
-  form: {
-    paddingHorizontal: 20,
-    paddingBottom: 32,
-  },
-  field: {
-    marginBottom: 24,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0f172a',
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: '#f8fafc',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    fontSize: 16,
-    color: '#0f172a',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  textArea: {
-    minHeight: 100,
-    textAlignVertical: 'top',
-  },
-  termRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-    gap: 8,
-  },
-  termInput: {
+  step1HeaderText: {
     flex: 1,
+  },
+  step1Title: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
     marginBottom: 0,
   },
-  deleteTermButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: '#fee2e2',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#fecaca',
-  },
-  deleteTermIcon: {
-    fontSize: 18,
-  },
-  addTermButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    gap: 8,
-  },
-  addTermIcon: {
-    fontSize: 18,
-    color: '#3b82f6',
-    fontWeight: 'bold',
-  },
-  addTermText: {
+  step1Subtitle: {
     fontSize: 14,
-    color: '#3b82f6',
-    fontWeight: '600',
+    fontWeight: 'normal',
+    color: '#6a7282',
+    lineHeight: 20,
+    fontFamily: 'Arimo',
+    marginTop: 0,
   },
-  amountInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#f8fafc',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
+  step1ProgressSection: {
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    paddingTop: 16,
+    paddingBottom: 1,
+    paddingHorizontal: 24,
+    height: 69,
   },
-  currencySymbol: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#0f172a',
-    marginRight: 8,
-  },
-  amountInput: {
-    flex: 1,
-    fontSize: 16,
-    color: '#0f172a',
-  },
-  feesRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    gap: 4,
-  },
-  feesLabel: {
-    fontSize: 14,
-    color: '#64748b',
-    fontWeight: '500',
-  },
-  feesValue: {
-    fontSize: 14,
-    color: '#0f172a',
-    fontWeight: '600',
-  },
-  maskedName: {
-    marginTop: 8,
-    fontSize: 14,
-    color: '#64748b',
-    fontStyle: 'italic',
-  },
-  nameContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginTop: 8,
-    gap: 8,
-  },
-  checkingText: {
-    fontSize: 14,
-    color: '#64748b',
-  },
-  userName: {
-    marginTop: 8,
-    fontSize: 14,
-    color: '#22c55e',
-    fontWeight: '600',
-  },
-  userNameError: {
-    marginTop: 8,
-    fontSize: 14,
-    color: '#ef4444',
-  },
-  optionsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  optionButton: {
-    paddingVertical: 12,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    backgroundColor: '#f8fafc',
-    borderWidth: 2,
-    borderColor: '#e2e8f0',
-  },
-  optionButtonActive: {
-    backgroundColor: '#3b82f6',
-    borderColor: '#3b82f6',
-  },
-  optionText: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#64748b',
-  },
-  optionTextActive: {
-    color: '#ffffff',
-  },
-  radioButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-  },
-  radioButtonActive: {
-    // Additional styling if needed
-  },
-  radioCircle: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: '#e2e8f0',
-    marginRight: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  radioCircleActive: {
-    borderColor: '#3b82f6',
-  },
-  radioInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: '#3b82f6',
-  },
-  radioLabel: {
-    fontSize: 16,
-    color: '#64748b',
-  },
-  radioLabelActive: {
-    color: '#0f172a',
-    fontWeight: '600',
-  },
-  continueButton: {
-    marginTop: 8,
-    paddingVertical: 16,
-    borderRadius: 12,
-    backgroundColor: '#3b82f6',
-    alignItems: 'center',
-  },
-  continueButtonDisabled: {
-    backgroundColor: '#e2e8f0',
-  },
-  continueButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: '#ffffff',
-  },
-  continueButtonTextDisabled: {
-    color: '#94a3b8',
-  },
-  summaryCard: {
-    marginHorizontal: 20,
-    marginBottom: 24,
-    padding: 20,
-    borderRadius: 12,
-    backgroundColor: '#f8fafc',
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-  },
-  summaryRow: {
+  step1ProgressHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    height: 20,
+  },
+  step1ProgressText: {
+    fontSize: 14,
+    fontWeight: 'normal',
+    color: '#4a5565',
+    lineHeight: 20,
+    fontFamily: 'Arimo',
+  },
+  step1ProgressBar: {
+    height: 8,
+    backgroundColor: '#e5e7eb',
+    borderRadius: 9999,
+    overflow: 'hidden',
+  },
+  step1ProgressFill: {
+    height: '100%',
+    backgroundColor: '#155dfc',
+    borderRadius: 9999,
+  },
+  step1ScrollView: {
+    flex: 1,
+  },
+  step1ScrollContent: {
+    paddingBottom: 24,
+  },
+  step1Content: {
+    paddingTop: 24,
+    paddingHorizontal: 24,
+    gap: 24,
+  },
+  step1QuestionSection: {
+    gap: 8,
+  },
+  step1Question: {
+    fontSize: 18,
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 27,
+    fontFamily: 'Arimo',
+  },
+  step1Description: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#6a7282',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+  },
+  step1Grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 16,
+  },
+  step1TypeCard: {
+    width: '47%',
+    backgroundColor: '#ffffff',
+    borderWidth: 2,
+    borderColor: '#e5e7eb',
+    borderRadius: 16,
+    padding: 26,
+    minHeight: 172,
+  },
+  step1TypeCardSelected: {
+    borderColor: '#155dfc',
+  },
+  step1TypeIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
     marginBottom: 16,
   },
-  summaryLabel: {
+  step1TypeName: {
     fontSize: 16,
-    fontWeight: '600',
-    color: '#64748b',
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+    marginBottom: 4,
   },
-  summaryValue: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0f172a',
-  },
-  summarySection: {
-    marginTop: 8,
-  },
-  summaryTerm: {
+  step1TypeDescription: {
     fontSize: 14,
-    color: '#0f172a',
-    marginTop: 8,
-    marginLeft: 8,
+    fontWeight: 'normal',
+    color: '#6a7282',
+    lineHeight: 20,
+    fontFamily: 'Arimo',
   },
-  confirmSection: {
-    marginHorizontal: 20,
-    marginBottom: 24,
-  },
-  checkboxContainer: {
+  step1InfoBox: {
+    backgroundColor: '#eff6ff',
+    borderWidth: 1,
+    borderColor: '#bedbff',
+    borderRadius: 14,
+    padding: 17,
     flexDirection: 'row',
     alignItems: 'flex-start',
+    gap: 12,
+    minHeight: 74,
   },
-  checkbox: {
+  step1InfoText: {
+    flex: 1,
+    fontSize: 14,
+    fontWeight: 'normal',
+    color: '#1c398e',
+    lineHeight: 20,
+    fontFamily: 'Arimo',
+  },
+  step2Container: {
+    flex: 1,
+    backgroundColor: '#f9fafb',
+  },
+  step2Header: {
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    paddingBottom: 1,
+    paddingHorizontal: 24,
+  },
+  step2HeaderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    height: 44,
+  },
+  step2BackButton: {
     width: 24,
     height: 24,
-    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  step2HeaderText: {
+    flex: 1,
+  },
+  step2Title: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+    marginBottom: 0,
+  },
+  step2Subtitle: {
+    fontSize: 14,
+    fontWeight: 'normal',
+    color: '#6a7282',
+    lineHeight: 20,
+    fontFamily: 'Arimo',
+    marginTop: 0,
+    textTransform: 'capitalize',
+  },
+  step2ProgressSection: {
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    paddingTop: 16,
+    paddingBottom: 1,
+    paddingHorizontal: 24,
+    height: 69,
+  },
+  step2ProgressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    height: 20,
+  },
+  step2ProgressText: {
+    fontSize: 14,
+    fontWeight: 'normal',
+    color: '#4a5565',
+    lineHeight: 20,
+    fontFamily: 'Arimo',
+  },
+  step2ProgressBar: {
+    height: 8,
+    backgroundColor: '#e5e7eb',
+    borderRadius: 9999,
+    overflow: 'hidden',
+  },
+  step2ProgressFill: {
+    height: '100%',
+    backgroundColor: '#155dfc',
+    borderRadius: 9999,
+  },
+  step2ScrollView: {
+    flex: 1,
+  },
+  step2ScrollContent: {
+    paddingBottom: 24,
+  },
+  step2Content: {
+    paddingTop: 24,
+    paddingHorizontal: 24,
+    gap: 20,
+  },
+  step2Card: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 16,
+    padding: 21,
+    gap: 12,
+  },
+  step2CardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 24,
+  },
+  step2CardLabel: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+  },
+  step2RoleButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    height: 80,
+  },
+  step2RoleButton: {
+    flex: 1,
     borderWidth: 2,
-    borderColor: '#e2e8f0',
-    marginRight: 12,
+    borderColor: '#e5e7eb',
+    borderRadius: 14,
+    padding: 18,
+    gap: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  step2RoleButtonSelected: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#155dfc',
+  },
+  step2RoleButtonText: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+    textAlign: 'center',
+  },
+  step2RoleButtonTextSelected: {
+    color: '#101828',
+  },
+  step2RoleButtonSubtext: {
+    fontSize: 12,
+    fontWeight: 'normal',
+    color: '#6a7282',
+    lineHeight: 16,
+    fontFamily: 'Arimo',
+    textAlign: 'center',
+  },
+  step2RoleButtonSubtextSelected: {
+    color: '#6a7282',
+  },
+  step2Input: {
+    height: 50,
+    borderWidth: 1,
+    borderColor: '#d1d5dc',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    fontFamily: 'Arimo',
+    color: '#101828',
+  },
+  step2HelperText: {
+    fontSize: 14,
+    fontWeight: 'normal',
+    color: '#6a7282',
+    lineHeight: 20,
+    fontFamily: 'Arimo',
+  },
+  step2CheckingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+  },
+  step2CheckingText: {
+    fontSize: 14,
+    color: '#6a7282',
+    fontFamily: 'Arimo',
+  },
+  step2SuccessBox: {
+    backgroundColor: '#f0fdf4',
+    borderWidth: 1,
+    borderColor: '#b9f8cf',
+    borderRadius: 14,
+    padding: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 8,
+    minHeight: 70,
+  },
+  step2SuccessTextContainer: {
+    flex: 1,
+  },
+  step2SuccessTitle: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#0d542b',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+  },
+  step2SuccessName: {
+    fontSize: 14,
+    fontWeight: 'normal',
+    color: '#008236',
+    lineHeight: 20,
+    fontFamily: 'Arimo',
+  },
+  step2ErrorBox: {
+    backgroundColor: '#fef2f2',
+    borderWidth: 1,
+    borderColor: '#fecaca',
+    borderRadius: 14,
+    padding: 13,
+    marginTop: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    minHeight: 70,
+  },
+  step2ErrorTextContainer: {
+    flex: 1,
+  },
+  step2ErrorTitle: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#dc2626',
+    fontFamily: 'Arimo',
+    lineHeight: 24,
+  },
+  step2ErrorSubtext: {
+    fontSize: 14,
+    fontWeight: 'normal',
+    color: '#991b1b',
+    fontFamily: 'Arimo',
+    lineHeight: 20,
+    marginTop: 2,
+  },
+  step2ErrorText: {
+    fontSize: 14,
+    color: '#ef4444',
+    fontFamily: 'Arimo',
+    marginTop: 8,
+  },
+  step2AmountInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 50,
+    borderWidth: 1,
+    borderColor: '#d1d5dc',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  step2CurrencySymbol: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#6a7282',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+    marginRight: 8,
+  },
+  step2AmountInput: {
+    flex: 1,
+    fontSize: 16,
+    fontFamily: 'Arimo',
+    color: '#101828',
+  },
+  step2AmountBreakdown: {
+    backgroundColor: '#f9fafb',
+    borderRadius: 10,
+    padding: 12,
+    gap: 4,
+    marginTop: 12,
+  },
+  step2BreakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    height: 20,
+  },
+  step2BreakdownRowTotal: {
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    paddingTop: 9,
+    marginTop: 4,
+    height: 33,
+  },
+  step2BreakdownLabel: {
+    fontSize: 14,
+    fontWeight: 'normal',
+    color: '#4a5565',
+    lineHeight: 20,
+    fontFamily: 'Arimo',
+  },
+  step2BreakdownLabelTotal: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 24,
+  },
+  step2BreakdownValue: {
+    fontSize: 14,
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 20,
+    fontFamily: 'Arimo',
+  },
+  step2BreakdownValueTotal: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 24,
+  },
+  step2Footer: {
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    paddingTop: 25,
+    paddingHorizontal: 24,
+  },
+  step2ContinueButton: {
+    height: 56,
+    backgroundColor: '#155dfc',
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  step2ContinueButtonDisabled: {
+    backgroundColor: '#e5e7eb',
+  },
+  step2ContinueButtonText: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#ffffff',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+  },
+  step3Container: {
+    flex: 1,
+    backgroundColor: '#f9fafb',
+  },
+  step3Header: {
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    paddingBottom: 1,
+    paddingHorizontal: 24,
+  },
+  step3HeaderContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    height: 44,
+  },
+  step3BackButton: {
+    width: 24,
+    height: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  step3HeaderText: {
+    flex: 1,
+  },
+  step3Title: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+    marginBottom: 0,
+  },
+  step3Subtitle: {
+    fontSize: 14,
+    fontWeight: 'normal',
+    color: '#6a7282',
+    lineHeight: 20,
+    fontFamily: 'Arimo',
+    marginTop: 0,
+  },
+  step3ProgressSection: {
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e5e7eb',
+    paddingTop: 16,
+    paddingBottom: 1,
+    paddingHorizontal: 24,
+    height: 69,
+  },
+  step3ProgressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    height: 20,
+  },
+  step3ProgressText: {
+    fontSize: 14,
+    fontWeight: 'normal',
+    color: '#4a5565',
+    lineHeight: 20,
+    fontFamily: 'Arimo',
+  },
+  step3ProgressBar: {
+    height: 8,
+    backgroundColor: '#e5e7eb',
+    borderRadius: 9999,
+    overflow: 'hidden',
+  },
+  step3ProgressFill: {
+    height: '100%',
+    backgroundColor: '#155dfc',
+    borderRadius: 9999,
+  },
+  step3ScrollView: {
+    flex: 1,
+  },
+  step3ScrollContent: {
+    paddingBottom: 24,
+  },
+  step3Content: {
+    paddingTop: 24,
+    paddingHorizontal: 24,
+    gap: 20,
+  },
+  step3Card: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 16,
+    padding: 21,
+    gap: 12,
+  },
+  step3CardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 24,
+  },
+  step3CardLabel: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+  },
+  step3Input: {
+    height: 50,
+    borderWidth: 1,
+    borderColor: '#d1d5dc',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    fontFamily: 'Arimo',
+    color: '#101828',
+  },
+  step3TermsList: {
+    gap: 12,
+  },
+  step3TermRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+  },
+  step3TermInput: {
+    flex: 1,
+    height: 50,
+    borderWidth: 1,
+    borderColor: '#d1d5dc',
+    borderRadius: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    fontFamily: 'Arimo',
+    color: '#101828',
+  },
+  step3DeleteTermButton: {
+    width: 48,
+    height: 48,
+    backgroundColor: '#fef2f2',
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  step3AddTermButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+    height: 24,
+  },
+  step3AddTermText: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#155dfc',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+  },
+  step3FeeOptions: {
+    gap: 8,
+  },
+  step3FeeOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    height: 58,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    borderRadius: 14,
+    paddingHorizontal: 17,
+    paddingVertical: 1,
+  },
+  step3FeeOptionSelected: {
+    backgroundColor: '#eff6ff',
+    borderColor: '#2b7fff',
+  },
+  step3FeeOptionContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  step3RadioButton: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  step3RadioButtonSelected: {
+    borderColor: '#155dfc',
+  },
+  step3RadioInner: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#155dfc',
+  },
+  step3FeeOptionText: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+  },
+  step3FeeOptionTextSelected: {
+    color: '#101828',
+  },
+  step3FeeAmount: {
+    fontSize: 14,
+    fontWeight: 'normal',
+    color: '#6a7282',
+    lineHeight: 20,
+    fontFamily: 'Arimo',
+  },
+  step3SummaryCard: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#bedbff',
+    borderRadius: 16,
+    padding: 21,
+    gap: 16,
+  },
+  step3SummaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 24,
+  },
+  step3SummaryTitle: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+  },
+  step3SummaryContent: {
+    gap: 10,
+  },
+  step3SummaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    height: 24,
+  },
+  step3SummaryLabel: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#4a5565',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+  },
+  step3SummaryValue: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+    textTransform: 'capitalize',
+  },
+  step3AgreementCard: {
+    backgroundColor: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#bedbff',
+    borderRadius: 16,
+    padding: 21,
+  },
+  step3CheckboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  step3Checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
     justifyContent: 'center',
     alignItems: 'center',
     marginTop: 2,
   },
-  checkboxChecked: {
-    backgroundColor: '#3b82f6',
-    borderColor: '#3b82f6',
+  step3CheckboxChecked: {
+    backgroundColor: '#155dfc',
+    borderColor: '#155dfc',
   },
-  checkmark: {
-    color: '#ffffff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  checkboxLabel: {
+  step3CheckboxTextContainer: {
     flex: 1,
+    gap: 4,
+  },
+  step3CheckboxTitle: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#101828',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+  },
+  step3CheckboxSubtext: {
     fontSize: 14,
-    color: '#0f172a',
+    fontWeight: 'normal',
+    color: '#6a7282',
     lineHeight: 20,
+    fontFamily: 'Arimo',
   },
-  confirmButton: {
-    marginHorizontal: 20,
-    marginBottom: 32,
-    paddingVertical: 16,
-    borderRadius: 12,
-    backgroundColor: '#3b82f6',
-    alignItems: 'center',
-  },
-  confirmButtonDisabled: {
-    backgroundColor: '#e2e8f0',
-  },
-  confirmButtonText: {
-    fontSize: 18,
-    fontWeight: 'bold',
+  step3Checkmark: {
     color: '#ffffff',
+    fontSize: 14,
+    fontWeight: 'bold',
   },
-  confirmButtonTextDisabled: {
-    color: '#94a3b8',
+  step3Footer: {
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    paddingTop: 25,
+    paddingHorizontal: 24,
+  },
+  step3CreateButton: {
+    height: 56,
+    backgroundColor: '#155dfc',
+    borderRadius: 14,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  step3CreateButtonDisabled: {
+    backgroundColor: '#d1d5dc',
+  },
+  step3CreateButtonText: {
+    fontSize: 16,
+    fontWeight: 'normal',
+    color: '#ffffff',
+    lineHeight: 24,
+    fontFamily: 'Arimo',
+  },
+  step3CreateButtonTextDisabled: {
+    color: '#ffffff',
   },
 });
 

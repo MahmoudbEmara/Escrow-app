@@ -161,6 +161,9 @@ export default function ChatScreen() {
               const messagesResult = await DatabaseService.getMessages(transactionId, { userId: state.user.id });
               if (messagesResult.data) {
                 await ChatCacheService.saveMessagesToCache(transactionId, messagesResult.data);
+                const otherPartyName = chatInfo?.otherParty || 'User';
+                const formattedMessages = formatMessages(messagesResult.data, otherPartyName, state.user.id);
+                setMessages(formattedMessages);
               }
             }).catch(console.error);
           }
@@ -1151,11 +1154,11 @@ export default function ChatScreen() {
                         {msg.isMe && msg.uploadStatus !== 'uploading' && (
                           <View style={styles.messageStatus}>
                             {msg.readAt ? (
-                              <Ionicons name="checkmark-done" size={16} color="#00a63e" />
+                              <Ionicons name="checkmark-done" size={14} color="#00a63e" />
                             ) : msg.downloadedAt ? (
-                              <Ionicons name="checkmark-done" size={16} color="#9ca3af" />
+                              <Ionicons name="checkmark-done" size={14} color="#9ca3af" />
                             ) : !msg.id.startsWith('temp_') ? (
-                              <Ionicons name="checkmark-outline" size={16} color="#9ca3af" />
+                              <Ionicons name="checkmark-outline" size={14} color="#9ca3af" />
                             ) : null}
                           </View>
                         )}

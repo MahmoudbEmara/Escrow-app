@@ -1,6 +1,5 @@
 import { supabase } from '../lib/supabase';
 import { isValidTransition } from '../constants/transactionStates';
-import * as NotificationService from './notificationService';
 
 /**
  * Database Service
@@ -183,14 +182,10 @@ export const getTransactions = async (userId, options = {}) => {
       return { data: [], error: null };
     }
 
-    // Try to fetch with joined profiles, fallback to basic query
+    // Fetch transactions without joins (profiles are fetched separately)
     let query = supabase
       .from('transactions')
-      .select(`
-        *,
-        buyer_profile:profiles!buyer_id(id, name, email),
-        seller_profile:profiles!seller_id(id, name, email)
-      `)
+      .select('*')
       .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`);
 
     // Apply ordering
@@ -210,31 +205,7 @@ export const getTransactions = async (userId, options = {}) => {
     const { data, error } = await query;
 
     if (error) {
-      // Fallback to basic query if join fails
-      console.warn('Join query failed, using basic query:', error);
-      let basicQuery = supabase
-        .from('transactions')
-        .select('*')
-        .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
-        .order('created_at', { ascending: false })
-        .limit(options.limit || 50);
-
-      const { data: basicData, error: basicError } = await basicQuery;
-      
-      if (basicError) {
-        throw basicError;
-      }
-
-      // Map transactions to include role based on user
-      const mappedData = (basicData || []).map(transaction => ({
-        ...transaction,
-        role: transaction.buyer_id === userId ? 'Buyer' : 'Seller',
-      }));
-
-      return {
-        data: mappedData,
-        error: null,
-      };
+      throw error;
     }
 
     // Map transactions to include role based on user
@@ -263,11 +234,12 @@ export const getTransactions = async (userId, options = {}) => {
  */
 export const getTransaction = async (transactionId) => {
   try {
-    const { data, error } = await supabase
+    let query = supabase
       .from('transactions')
       .select('*')
-      .eq('id', transactionId)
-      .single();
+      .eq('id', transactionId);
+
+    const { data, error } = await query.single();
 
     if (error) {
       throw error;
@@ -530,6 +502,7 @@ export const transitionTransactionState = async (transactionId, toState, userId,
     if (updatedTransaction) {
       // Update the status in the transaction object for notification service
       updatedTransaction.status = normalizedToState;
+      const NotificationService = await import('./notificationService');
       await NotificationService.executeTransitionAction(updatedTransaction, normalizedToState, userId);
     }
 
@@ -835,29 +808,11 @@ export const deleteTransaction = async (transactionId) => {
 export const getChatsForUser = async (userId) => {
   try {
     // Get all transactions where user is buyer or seller
-    let transactions;
-    let txnError;
-    
-    // Try with join first
-    const { data: transactionsWithJoin, error: joinError } = await supabase
+    const { data: transactions, error: txnError } = await supabase
       .from('transactions')
-      .select('id, title, status, buyer_id, seller_id, created_at, buyer_profile:buyer_id(name, is_online, avatar_url), seller_profile:seller_id(name, is_online, avatar_url)')
+      .select('id, title, status, buyer_id, seller_id, created_at')
       .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
       .order('created_at', { ascending: false });
-
-    if (joinError) {
-      // If join fails, try without join
-      const { data: transactionsWithoutJoin, error: noJoinError } = await supabase
-        .from('transactions')
-        .select('id, title, status, buyer_id, seller_id, created_at')
-        .or(`buyer_id.eq.${userId},seller_id.eq.${userId}`)
-        .order('created_at', { ascending: false });
-      
-      transactions = transactionsWithoutJoin;
-      txnError = noJoinError;
-    } else {
-      transactions = transactionsWithJoin;
-    }
 
     if (txnError) {
       throw txnError;

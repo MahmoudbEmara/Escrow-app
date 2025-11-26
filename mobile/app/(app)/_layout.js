@@ -221,6 +221,7 @@ export default function AppLayout() {
         name="new-transaction"
         options={{
           href: null,
+          tabBarStyle: { display: 'none' },
         }}
       />
       <Tabs.Screen
