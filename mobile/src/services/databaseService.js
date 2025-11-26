@@ -936,7 +936,7 @@ export const getChatsForUser = async (userId) => {
         try {
           const { data } = await supabase
             .from('messages')
-            .select('id, message, sender_id, created_at')
+            .select('id, message, sender_id, created_at, file_type')
             .eq('transaction_id', txn.id)
             .order('created_at', { ascending: false })
             .limit(1)
@@ -1005,6 +1005,7 @@ export const getChatsForUser = async (userId) => {
           otherPartyAvatarUrl: otherPartyAvatarUrl,
           otherPartyIsOnline: otherPartyIsOnline,
           lastMessage: lastMessage?.message || '',
+          lastMessageFileType: lastMessage?.file_type || null,
           lastMessageTime: lastMessageTime,
           lastActivityTimestamp: lastActivityTimestamp, // For sorting
           unreadCount: unreadCount,
@@ -1130,7 +1131,7 @@ export const getMessages = async (transactionId, options = {}) => {
   try {
     const { data, error } = await supabase
       .from('messages')
-      .select('id, transaction_id, sender_id, message, created_at')
+      .select('id, transaction_id, sender_id, message, created_at, file_url, file_type, file_name, read_at')
       .eq('transaction_id', transactionId)
       .order('created_at', { ascending: true })
       .limit(options.limit || 100);
@@ -1191,15 +1192,23 @@ export const getMessages = async (transactionId, options = {}) => {
  */
 export const sendMessage = async (messageData) => {
   try {
+    const insertData = {
+      transaction_id: messageData.transaction_id,
+      sender_id: messageData.sender_id,
+      message: messageData.message || null,
+      created_at: new Date().toISOString(),
+    };
+
+    if (messageData.file_url) {
+      insertData.file_url = messageData.file_url;
+      insertData.file_type = messageData.file_type || null;
+      insertData.file_name = messageData.file_name || null;
+    }
+
     const { data, error } = await supabase
       .from('messages')
-      .insert({
-        transaction_id: messageData.transaction_id,
-        sender_id: messageData.sender_id,
-        message: messageData.message,
-        created_at: new Date().toISOString(),
-      })
-      .select('id, transaction_id, sender_id, message, created_at')
+      .insert(insertData)
+      .select('id, transaction_id, sender_id, message, created_at, file_url, file_type, file_name')
       .single();
 
     if (error) {

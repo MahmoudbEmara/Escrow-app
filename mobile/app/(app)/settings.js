@@ -460,8 +460,8 @@ const styles = StyleSheet.create({
   },
   cameraButton: {
     position: 'absolute',
-    bottom: 0,
-    right: 0,
+    bottom: -6,
+    right: -6,
     width: 32, // w-8 from Figma
     height: 32, // h-8 from Figma
     borderRadius: 16,

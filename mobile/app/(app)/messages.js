@@ -2,7 +2,7 @@ import React, { useContext, useState, useEffect, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, TextInput, Platform, Image } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
-import { Search } from 'lucide-react-native';
+import { Search, MessageCircle } from 'lucide-react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
@@ -10,6 +10,7 @@ import { getStateColors, getStateDisplayName, getTranslatedStatusName } from '..
 import * as DatabaseService from '../../src/services/databaseService';
 import { supabase } from '../../src/lib/supabase';
 import * as ImageCacheService from '../../src/services/imageCacheService';
+import * as ChatCacheService from '../../src/services/chatCacheService';
 
 export default function MessagesScreen() {
   const { state } = useContext(AuthContext);
@@ -30,10 +31,38 @@ export default function MessagesScreen() {
     }
 
     try {
+      const cachedChats = await ChatCacheService.getChatsFromCache();
+      if (cachedChats) {
+        setChats(cachedChats);
+        setLoading(false);
+        
+        const avatarUrls = cachedChats
+          .map(chat => chat.otherPartyAvatarUrl)
+          .filter(url => url);
+        
+        if (avatarUrls.length > 0) {
+          const cachePromises = avatarUrls.map(async (url) => {
+            const cachedUri = await ImageCacheService.getCachedImageUri(url);
+            return { url, cachedUri };
+          });
+          
+          const cachedResults = await Promise.all(cachePromises);
+          const uriMap = {};
+          cachedResults.forEach(({ url, cachedUri }) => {
+            if (cachedUri) {
+              uriMap[url] = cachedUri;
+            }
+          });
+          
+          setCachedImageUris(prev => ({ ...prev, ...uriMap }));
+        }
+      }
+
       const result = await DatabaseService.getChatsForUser(state.user.id);
       if (result.data) {
         const chatsData = result.data;
         
+        await ChatCacheService.saveChatsToCache(chatsData);
         setChats(chatsData);
         
         const avatarUrls = chatsData
@@ -267,10 +296,14 @@ export default function MessagesScreen() {
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
         {filteredChats.length === 0 ? (
           <View style={styles.emptyState}>
-            <Text style={styles.emptyStateIcon}>💬</Text>
-            <Text style={[styles.emptyStateText, isRTL && styles.textRTL]}>{t('noMessages') || 'No Messages'}</Text>
+            <View style={styles.emptyStateIconContainer}>
+              <MessageCircle size={32} color="#9CA3AF" />
+            </View>
+            <Text style={[styles.emptyStateText, isRTL && styles.textRTL]}>
+              {t('noMessages') || 'No messages yet'}
+            </Text>
             <Text style={[styles.emptyStateSubtext, isRTL && styles.textRTL]}>
-              {t('noMessagesDesc') || 'You don\'t have any messages yet. Start a conversation from a transaction.'}
+              {t('noMessagesDesc') || 'Start the conversation by sending a message.'}
             </Text>
           </View>
         ) : (
@@ -348,7 +381,9 @@ export default function MessagesScreen() {
                         ]} 
                         numberOfLines={1}
                       >
-                        {chat.lastMessage || 'No messages yet'}
+                        {chat.lastMessageFileType === 'image' ? 'Image' : 
+                         chat.lastMessageFileType === 'video' ? 'Video' : 
+                         (chat.lastMessage || 'No messages yet')}
                       </Text>
                       {chat.unreadCount > 0 && (
                         <View style={[styles.unreadBadge, isRTL && styles.unreadBadgeRTL]}>
@@ -445,23 +480,30 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 100,
     paddingHorizontal: 40,
+    gap: 16,
   },
-  emptyStateIcon: {
-    fontSize: 64,
-    marginBottom: 16,
+  emptyStateIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 0,
   },
   emptyStateText: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: 'bold',
-    color: '#0f172a',
-    marginBottom: 8,
+    color: '#101828',
+    marginBottom: 0,
+    textAlign: 'center',
   },
   emptyStateSubtext: {
     fontSize: 14,
-    color: '#64748b',
+    color: '#6a7282',
     textAlign: 'center',
+    lineHeight: 20,
   },
   chatsList: {
     // No padding, items handle their own spacing
