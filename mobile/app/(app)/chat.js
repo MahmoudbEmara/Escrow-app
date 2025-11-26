@@ -4,7 +4,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
-import { MessageCircle, Send, MoreVertical, X, Paperclip, Image as ImageIcon, FileText, Check, Camera } from 'lucide-react-native';
+import { MessageCircle, Send, MoreVertical, X, Paperclip, Image as ImageIcon, FileText, Camera } from 'lucide-react-native';
+import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { AuthContext } from '../../src/context/AuthContext';
@@ -100,12 +101,13 @@ export default function ChatScreen() {
         if (transactionResult.data) {
           const txn = transactionResult.data;
           const otherPartyId = txn.buyer_id === state.user.id ? txn.seller_id : txn.buyer_id;
-          const otherPartyName = txn.buyer_id === state.user.id 
-            ? (txn.seller_profile?.name || txn.seller_profile?.username || 'Seller')
-            : (txn.buyer_profile?.name || txn.buyer_profile?.username || 'Buyer');
 
           const otherPartyProfileResult = await DatabaseService.getUserProfile(otherPartyId);
           const otherPartyProfile = otherPartyProfileResult.data;
+          const otherPartyName = otherPartyProfile?.name || 
+            (txn.buyer_id === state.user.id 
+              ? (txn.seller_profile?.name || txn.seller_profile?.username || 'Seller')
+              : (txn.buyer_profile?.name || txn.buyer_profile?.username || 'Buyer'));
           const otherPartyAvatarUrl = otherPartyProfile?.avatar_url || null;
           const otherPartyInitials = otherPartyProfile 
             ? `${otherPartyProfile.first_name?.[0] || ''}${otherPartyProfile.last_name?.[0] || ''}`.toUpperCase() || 'U'
@@ -180,12 +182,13 @@ export default function ChatScreen() {
 
       const txn = transactionResult.data;
       const otherPartyId = txn.buyer_id === state.user.id ? txn.seller_id : txn.buyer_id;
-      const otherPartyName = txn.buyer_id === state.user.id 
-        ? (txn.seller_profile?.name || txn.seller_profile?.username || 'Seller')
-        : (txn.buyer_profile?.name || txn.buyer_profile?.username || 'Buyer');
 
           const otherPartyProfileResult = await DatabaseService.getUserProfile(otherPartyId);
           const otherPartyProfile = otherPartyProfileResult.data;
+          const otherPartyName = otherPartyProfile?.name || 
+            (txn.buyer_id === state.user.id 
+              ? (txn.seller_profile?.name || txn.seller_profile?.username || 'Seller')
+              : (txn.buyer_profile?.name || txn.buyer_profile?.username || 'Buyer'));
           const otherPartyAvatarUrl = otherPartyProfile?.avatar_url || null;
           const otherPartyInitials = otherPartyProfile 
             ? `${otherPartyProfile.first_name?.[0] || ''}${otherPartyProfile.last_name?.[0] || ''}`.toUpperCase() || 'U'
@@ -957,7 +960,7 @@ export default function ChatScreen() {
                   </View>
                 </View>
                 <Text style={[styles.headerSubtitle, isRTL && styles.textRTL]}>
-                  {chatInfo.sellerName || chatInfo.otherParty}
+                  {chatInfo.otherParty || 'User'}
                 </Text>
               </View>
               <TouchableOpacity style={styles.menuButton}>
@@ -1148,17 +1151,11 @@ export default function ChatScreen() {
                         {msg.isMe && msg.uploadStatus !== 'uploading' && (
                           <View style={styles.messageStatus}>
                             {msg.readAt ? (
-                              <>
-                                <Check size={14} color="#00a63e" strokeWidth={3} />
-                                <Check size={14} color="#00a63e" strokeWidth={3} style={{ marginLeft: -4 }} />
-                              </>
+                              <Ionicons name="checkmark-done" size={16} color="#00a63e" />
                             ) : msg.downloadedAt ? (
-                              <>
-                                <Check size={14} color="#9ca3af" strokeWidth={3} />
-                                <Check size={14} color="#9ca3af" strokeWidth={3} style={{ marginLeft: -4 }} />
-                              </>
+                              <Ionicons name="checkmark-done" size={16} color="#9ca3af" />
                             ) : !msg.id.startsWith('temp_') ? (
-                              <Check size={14} color="#9ca3af" strokeWidth={3} />
+                              <Ionicons name="checkmark-outline" size={16} color="#9ca3af" />
                             ) : null}
                           </View>
                         )}
@@ -1504,7 +1501,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   messageBubbleMe: {
-    backgroundColor: '#3b82f6',
+    backgroundColor: '#3b3e54',
     borderBottomRightRadius: 4,
   },
   messageBubbleOther: {
