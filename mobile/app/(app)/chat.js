@@ -82,6 +82,7 @@ export default function ChatScreen() {
         dateLabel: dateLabel,
         isMe: isMe,
         readAt: msg.read_at,
+        downloadedAt: msg.downloaded_at,
       };
     });
   }, []);
@@ -155,7 +156,7 @@ export default function ChatScreen() {
           
           if (shouldMarkAsRead) {
             DatabaseService.markMessagesAsRead(transactionId, state.user.id).then(async () => {
-              const messagesResult = await DatabaseService.getMessages(transactionId);
+              const messagesResult = await DatabaseService.getMessages(transactionId, { userId: state.user.id });
               if (messagesResult.data) {
                 await ChatCacheService.saveMessagesToCache(transactionId, messagesResult.data);
               }
@@ -207,7 +208,7 @@ export default function ChatScreen() {
             sellerName: sellerName,
           });
 
-      const messagesResult = await DatabaseService.getMessages(transactionId);
+      const messagesResult = await DatabaseService.getMessages(transactionId, { userId: state.user.id });
       if (messagesResult.data) {
         await ChatCacheService.saveMessagesToCache(transactionId, messagesResult.data);
         
@@ -216,7 +217,7 @@ export default function ChatScreen() {
 
         if (shouldMarkAsRead) {
           await DatabaseService.markMessagesAsRead(transactionId, state.user.id);
-          const updatedMessagesResult = await DatabaseService.getMessages(transactionId);
+          const updatedMessagesResult = await DatabaseService.getMessages(transactionId, { userId: state.user.id });
           if (updatedMessagesResult.data) {
             await ChatCacheService.saveMessagesToCache(transactionId, updatedMessagesResult.data);
             const updatedFormattedMessages = formatMessages(updatedMessagesResult.data, otherPartyName, state.user.id);
@@ -289,7 +290,7 @@ export default function ChatScreen() {
         async (payload) => {
           const newMessage = payload.new;
           if (newMessage.sender_id !== state.user.id) {
-            const messagesResult = await DatabaseService.getMessages(transactionId);
+            const messagesResult = await DatabaseService.getMessages(transactionId, { userId: state.user.id });
             if (messagesResult.data) {
               await ChatCacheService.saveMessagesToCache(transactionId, messagesResult.data);
               const otherPartyName = chatInfo?.otherParty || 'User';
@@ -313,13 +314,14 @@ export default function ChatScreen() {
             if (msg.id === updatedMessage.id) {
               return {
                 ...msg,
-                readAt: updatedMessage.read_at
+                readAt: updatedMessage.read_at,
+                downloadedAt: updatedMessage.downloaded_at
               };
             }
             return msg;
           }));
           
-          const messagesResult = await DatabaseService.getMessages(transactionId);
+          const messagesResult = await DatabaseService.getMessages(transactionId, { userId: state.user.id });
           if (messagesResult.data) {
             await ChatCacheService.saveMessagesToCache(transactionId, messagesResult.data);
           }
@@ -1150,14 +1152,14 @@ export default function ChatScreen() {
                                 <Check size={14} color="#00a63e" strokeWidth={3} />
                                 <Check size={14} color="#00a63e" strokeWidth={3} style={{ marginLeft: -4 }} />
                               </>
-                            ) : !msg.id.startsWith('temp_') ? (
+                            ) : msg.downloadedAt ? (
                               <>
                                 <Check size={14} color="#9ca3af" strokeWidth={3} />
                                 <Check size={14} color="#9ca3af" strokeWidth={3} style={{ marginLeft: -4 }} />
                               </>
-                            ) : (
+                            ) : !msg.id.startsWith('temp_') ? (
                               <Check size={14} color="#9ca3af" strokeWidth={3} />
-                            )}
+                            ) : null}
                           </View>
                         )}
                         <Text style={[

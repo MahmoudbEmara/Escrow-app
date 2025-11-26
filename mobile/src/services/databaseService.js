@@ -1131,7 +1131,7 @@ export const getMessages = async (transactionId, options = {}) => {
   try {
     const { data, error } = await supabase
       .from('messages')
-      .select('id, transaction_id, sender_id, message, created_at, file_url, file_type, file_name, read_at')
+      .select('id, transaction_id, sender_id, message, created_at, file_url, file_type, file_name, read_at, downloaded_at')
       .eq('transaction_id', transactionId)
       .order('created_at', { ascending: true })
       .limit(options.limit || 100);
@@ -1165,6 +1165,32 @@ export const getMessages = async (transactionId, options = {}) => {
         ...msg,
         sender_profile: { name: profileMap[msg.sender_id] || null },
       }));
+
+      // Update downloaded_at for messages sent by others (not by current user)
+      // Get current user ID from options or from auth context
+      const currentUserId = options.userId;
+      if (currentUserId) {
+        const messagesToUpdate = messagesWithNames.filter(msg => 
+          msg.sender_id !== currentUserId && !msg.downloaded_at
+        );
+        
+        if (messagesToUpdate.length > 0) {
+          const messageIds = messagesToUpdate.map(msg => msg.id);
+          const { error: updateError } = await supabase
+            .from('messages')
+            .update({ downloaded_at: new Date().toISOString() })
+            .in('id', messageIds);
+          
+          if (!updateError) {
+            // Update the local data with downloaded_at
+            messagesWithNames.forEach(msg => {
+              if (messageIds.includes(msg.id)) {
+                msg.downloaded_at = new Date().toISOString();
+              }
+            });
+          }
+        }
+      }
 
       return {
         data: messagesWithNames,
