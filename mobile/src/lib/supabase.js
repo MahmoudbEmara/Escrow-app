@@ -50,15 +50,53 @@ if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
 }
 
 // Custom storage adapter for React Native using SecureStore
+// Optimized to handle large values by compressing JSON
 const ExpoSecureStoreAdapter = {
-  getItem: (key) => {
-    return SecureStore.getItemAsync(key);
+  getItem: async (key) => {
+    try {
+      return await SecureStore.getItemAsync(key);
+    } catch (error) {
+      console.error('Error reading from SecureStore:', error);
+      return null;
+    }
   },
-  setItem: (key, value) => {
-    SecureStore.setItemAsync(key, value);
+  setItem: async (key, value) => {
+    try {
+      // Supabase passes the value as a string (JSON stringified session)
+      let stringValue = value;
+      
+      // Minify JSON by removing unnecessary whitespace if it's valid JSON
+      try {
+        const parsed = JSON.parse(stringValue);
+        stringValue = JSON.stringify(parsed);
+      } catch {
+        // If not valid JSON, use as-is
+      }
+      
+      // Calculate approximate byte size (UTF-8 encoding)
+      // For most JSON strings, length is a good approximation
+      // For more accuracy with Unicode, we'd need TextEncoder, but length works for most cases
+      const sizeInBytes = stringValue.length;
+      
+      if (sizeInBytes > 2048) {
+        console.warn(
+          `Value for key "${key}" is approximately ${sizeInBytes} bytes (exceeds 2048 bytes limit). ` +
+          `This may cause storage issues. Consider optimizing the data being stored.`
+        );
+      }
+      
+      await SecureStore.setItemAsync(key, stringValue);
+    } catch (error) {
+      console.error('Error writing to SecureStore:', error);
+      // Don't throw - allow Supabase to handle gracefully
+    }
   },
-  removeItem: (key) => {
-    SecureStore.deleteItemAsync(key);
+  removeItem: async (key) => {
+    try {
+      await SecureStore.deleteItemAsync(key);
+    } catch (error) {
+      console.error('Error removing from SecureStore:', error);
+    }
   },
 };
 

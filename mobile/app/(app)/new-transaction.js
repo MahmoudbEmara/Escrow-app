@@ -1,5 +1,5 @@
 import React, { useState, useContext, useRef, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Alert, KeyboardAvoidingView, Platform, ActivityIndicator, Keyboard } from 'react-native';
 import { StatusBar } from 'react-native';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -14,6 +14,9 @@ export default function NewTransactionScreen() {
   const insets = useSafeAreaInsets();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const step3ScrollViewRef = useRef(null);
+  const step2ScrollViewRef = useRef(null);
+  const [buyerInfoCardY, setBuyerInfoCardY] = useState(0);
+  const [amountCardY, setAmountCardY] = useState(0);
   const [formData, setFormData] = useState({
     title: '',
     role: '',
@@ -158,6 +161,28 @@ export default function NewTransactionScreen() {
         });
       }, 100);
     }
+  }, [currentStep]);
+
+  useEffect(() => {
+    if (currentStep !== 2) return;
+
+    const keyboardDidHideListener = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setTimeout(() => {
+          if (step2ScrollViewRef.current) {
+            step2ScrollViewRef.current.scrollTo({
+              y: 0,
+              animated: true
+            });
+          }
+        }, 100);
+      }
+    );
+
+    return () => {
+      keyboardDidHideListener.remove();
+    };
   }, [currentStep]);
 
   const handleRemoveTerm = (index) => {
@@ -334,7 +359,7 @@ export default function NewTransactionScreen() {
     return (
       <View style={styles.step1Container}>
         <StatusBar barStyle="dark-content" />
-        <View style={[styles.step1Header, { paddingTop: insets.top + 24 }]}>
+        <View style={[styles.step1Header, { paddingTop: insets.top + 12 }]}>
           <View style={styles.step1HeaderContent}>
             <TouchableOpacity onPress={() => router.back()} style={styles.step1BackButton}>
               <ArrowLeft size={24} color="#101828" />
@@ -409,7 +434,7 @@ export default function NewTransactionScreen() {
     return (
       <View style={styles.step2Container}>
         <StatusBar barStyle="dark-content" />
-        <View style={[styles.step2Header, { paddingTop: insets.top + 24 }]}>
+        <View style={[styles.step2Header, { paddingTop: insets.top + 12 }]}>
           <View style={styles.step2HeaderContent}>
             <TouchableOpacity onPress={() => setCurrentStep(1)} style={styles.step2BackButton}>
               <ArrowLeft size={24} color="#101828" />
@@ -432,6 +457,7 @@ export default function NewTransactionScreen() {
         </View>
 
         <ScrollView 
+          ref={step2ScrollViewRef}
           style={styles.step2ScrollView}
           contentContainerStyle={styles.step2ScrollContent}
           showsVerticalScrollIndicator={false}
@@ -496,7 +522,13 @@ export default function NewTransactionScreen() {
               </Text>
             </View>
 
-            <View style={styles.step2Card}>
+            <View 
+              style={styles.step2Card}
+              onLayout={(event) => {
+                const { y } = event.nativeEvent.layout;
+                setBuyerInfoCardY(y);
+              }}
+            >
               <View style={styles.step2CardHeader}>
                 <Mail size={20} color="#101828" />
                 <Text style={styles.step2CardLabel}>
@@ -511,6 +543,16 @@ export default function NewTransactionScreen() {
                 placeholderTextColor="rgba(10, 10, 10, 0.5)"
                 autoCapitalize="none"
                 keyboardType="email-address"
+                onFocus={() => {
+                  setTimeout(() => {
+                    if (step2ScrollViewRef.current && buyerInfoCardY > 0) {
+                      step2ScrollViewRef.current.scrollTo({
+                        y: Math.max(0, buyerInfoCardY - 100),
+                        animated: true
+                      });
+                    }
+                  }, 300);
+                }}
               />
               {checkingUser && (
                 <View style={styles.step2CheckingContainer}>
@@ -547,7 +589,13 @@ export default function NewTransactionScreen() {
               )}
             </View>
 
-            <View style={styles.step2Card}>
+            <View 
+              style={styles.step2Card}
+              onLayout={(event) => {
+                const { y } = event.nativeEvent.layout;
+                setAmountCardY(y);
+              }}
+            >
               <View style={styles.step2CardHeader}>
                 <Banknote size={20} color="#101828" />
                 <Text style={styles.step2CardLabel}>Transaction Amount</Text>
@@ -557,10 +605,30 @@ export default function NewTransactionScreen() {
                 <TextInput
                   style={styles.step2AmountInput}
                   value={formData.amount}
-                  onChangeText={(text) => setFormData({ ...formData, amount: text.replace(/[^0-9.]/g, '') })}
+                  onChangeText={(text) => {
+                    setFormData({ ...formData, amount: text.replace(/[^0-9.]/g, '') });
+                    setTimeout(() => {
+                      if (step2ScrollViewRef.current && amountCardY > 0) {
+                        step2ScrollViewRef.current.scrollTo({
+                          y: Math.max(0, amountCardY - 100),
+                          animated: true
+                        });
+                      }
+                    }, 100);
+                  }}
                   placeholder="0.00"
                   placeholderTextColor="rgba(10, 10, 10, 0.5)"
                   keyboardType="decimal-pad"
+                  onFocus={() => {
+                    setTimeout(() => {
+                      if (step2ScrollViewRef.current && amountCardY > 0) {
+                        step2ScrollViewRef.current.scrollTo({
+                          y: Math.max(0, amountCardY - 100),
+                          animated: true
+                        });
+                      }
+                    }, 300);
+                  }}
                 />
               </View>
               {formData.amount && parseFloat(formData.amount) > 0 && (
@@ -609,7 +677,7 @@ export default function NewTransactionScreen() {
     return (
       <View style={styles.step3Container}>
         <StatusBar barStyle="dark-content" />
-        <View style={[styles.step3Header, { paddingTop: insets.top + 24 }]}>
+        <View style={[styles.step3Header, { paddingTop: insets.top + 12 }]}>
           <View style={styles.step3HeaderContent}>
             <TouchableOpacity onPress={() => setCurrentStep(2)} style={styles.step3BackButton}>
               <ArrowLeft size={24} color="#101828" />
@@ -1221,7 +1289,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
-    paddingBottom: 1,
+    paddingBottom: 16,
     paddingHorizontal: 24,
   },
   step1HeaderContent: {
@@ -1384,7 +1452,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
-    paddingBottom: 1,
+    paddingBottom: 16,
     paddingHorizontal: 24,
   },
   step2HeaderContent: {
@@ -1457,7 +1525,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   step2ScrollContent: {
-    paddingBottom: 24,
+    paddingBottom: 200,
   },
   step2Content: {
     paddingTop: 24,
@@ -1722,7 +1790,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
-    paddingBottom: 1,
+    paddingBottom: 16,
     paddingHorizontal: 24,
   },
   step3HeaderContent: {
