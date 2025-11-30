@@ -7,6 +7,7 @@ import { LanguageContext } from '../../src/context/LanguageContext';
 import * as DatabaseService from '../../src/services/databaseService';
 import { supabase } from '../../src/lib/supabase';
 import { getTranslatedStatusName } from '../../src/constants/transactionStates';
+import * as WalletCacheService from '../../src/services/walletCacheService';
 
 export default function WalletScreen() {
   const { state } = useContext(AuthContext);
@@ -17,12 +18,12 @@ export default function WalletScreen() {
   const [paymentHistory, setPaymentHistory] = useState([]);
   const [rawHistoryData, setRawHistoryData] = useState([]);
   const [loading, setLoading] = useState(true);
-  
+
   const fetchDataRef = useRef(null);
 
   // Check if user is test user
-  const isTestUser = state.user?.email?.toLowerCase() === 'test@test.com' || 
-                     state.user?.profile?.email?.toLowerCase() === 'test@test.com';
+  const isTestUser = state.user?.email?.toLowerCase() === 'test@test.com' ||
+    state.user?.profile?.email?.toLowerCase() === 'test@test.com';
 
   // Test user hardcoded data
   const testAvailableBalance = 3850.00;
@@ -72,6 +73,23 @@ export default function WalletScreen() {
       return;
     }
 
+    // Try to load from cache first
+    const cachedBalance = await WalletCacheService.getBalanceFromCache();
+    const cachedHistory = await WalletCacheService.getHistoryFromCache();
+
+    if (cachedBalance !== null) {
+      setAvailableBalance(cachedBalance);
+    }
+
+    if (cachedHistory) {
+      setRawHistoryData(cachedHistory);
+      // We'll let the effect calling translateHistory handle the formatting
+    }
+
+    if (cachedBalance !== null || cachedHistory) {
+      setLoading(false);
+    }
+
     try {
       // Fetch wallet
       const walletResult = await DatabaseService.getUserWallet(state.user.id);
@@ -90,6 +108,14 @@ export default function WalletScreen() {
           type: item.type || (item.amount >= 0 ? 'credit' : 'debit'),
         }));
         setRawHistoryData(rawData);
+
+        // Save history to cache
+        await WalletCacheService.saveHistoryToCache(rawData);
+      }
+
+      // Save balance to cache if available
+      if (walletResult.data) {
+        await WalletCacheService.saveBalanceToCache(parseFloat(walletResult.data.available_balance || walletResult.data.balance || 0));
       }
 
       setLoading(false);
@@ -107,13 +133,13 @@ export default function WalletScreen() {
 
     const translateDescription = (description) => {
       if (!description) return t('transaction');
-      
+
       const desc = description.toLowerCase();
-      
+
       if (desc.includes('transaction initiated')) {
         return t('transactionInitiated');
       }
-      
+
       if (desc.includes('state changed from') && desc.includes('to')) {
         const match = description.match(/State changed from (.+?) to (.+)/i);
         if (match) {
@@ -124,11 +150,11 @@ export default function WalletScreen() {
           return t('stateChangedFromTo').replace('{from}', fromTranslated).replace('{to}', toTranslated);
         }
       }
-      
+
       if (desc.includes('seller started work')) {
         return t('sellerStartedWork');
       }
-      
+
       if (desc.includes('funds released')) {
         const match = description.match(/Funds released for transaction: (.+)/i);
         if (match) {
@@ -137,7 +163,7 @@ export default function WalletScreen() {
         }
         return t('fundsReleased').replace('{title}', '');
       }
-      
+
       if (desc.includes('funds held in escrow')) {
         const match = description.match(/Funds held in escrow for transaction: (.+)/i);
         if (match) {
@@ -146,17 +172,17 @@ export default function WalletScreen() {
         }
         return t('fundsHeldInEscrow').replace('{title}', '');
       }
-      
+
       return description;
     };
-    
+
     const formattedHistory = rawHistoryData.map(item => ({
       id: item.id,
       name: translateDescription(item.description),
-      date: new Date(item.created_at).toLocaleDateString('en-US', { 
-        month: 'short', 
-        day: 'numeric', 
-        year: 'numeric' 
+      date: new Date(item.created_at).toLocaleDateString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        year: 'numeric'
       }),
       amount: item.amount,
       type: item.type,
@@ -197,7 +223,9 @@ export default function WalletScreen() {
           const updatedWallet = payload.new;
           if (updatedWallet.user_id === state.user.id) {
             console.log('Wallet balance updated, refreshing data...');
-            setAvailableBalance(parseFloat(updatedWallet.available_balance || updatedWallet.balance || 0));
+            const newBalance = parseFloat(updatedWallet.available_balance || updatedWallet.balance || 0);
+            setAvailableBalance(newBalance);
+            WalletCacheService.saveBalanceToCache(newBalance);
           }
         }
       )

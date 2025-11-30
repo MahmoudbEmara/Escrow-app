@@ -11,6 +11,7 @@ import * as DatabaseService from '../../src/services/databaseService';
 import { supabase } from '../../src/lib/supabase';
 import { getStateDisplayName, getStateColors, getTranslatedStatusName } from '../../src/constants/transactionStates';
 import * as ImageCacheService from '../../src/services/imageCacheService';
+import * as HomeCacheService from '../../src/services/homeCacheService';
 
 export default function HomeScreen() {
   const { state } = useContext(AuthContext);
@@ -31,16 +32,16 @@ export default function HomeScreen() {
   const [imageViewerVisible, setImageViewerVisible] = useState(false);
   const [viewerImageUri, setViewerImageUri] = useState(null);
   const [cachedProfileImageUri, setCachedProfileImageUri] = useState(null);
-  
+
   const fetchDataRef = useRef(null);
-  
+
   // --- Generate redirect URI for Expo Go ---
   const redirectUri = AuthSession.makeRedirectUri({ useProxy: true });
   console.log('Redirect URI for Expo Go:', redirectUri);
 
   // Check if user is test user
-  const isTestUser = state.user?.email?.toLowerCase() === 'test@test.com' || 
-                     state.user?.profile?.email?.toLowerCase() === 'test@test.com';
+  const isTestUser = state.user?.email?.toLowerCase() === 'test@test.com' ||
+    state.user?.profile?.email?.toLowerCase() === 'test@test.com';
 
   // Test user hardcoded data
   const testTransactions = [
@@ -112,116 +113,138 @@ export default function HomeScreen() {
 
   // Fetch transactions and wallet data
   const fetchData = useCallback(async (isRefresh = false) => {
-      if (!state.user?.id) {
-        setLoading(false);
-        setRefreshing(false);
-        return;
-      }
+    if (!state.user?.id) {
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
 
-      if (isRefresh) {
-        setRefreshing(true);
+    if (isRefresh) {
+      setRefreshing(true);
+    } else {
+      // Try to load from cache first
+      const cachedTransactions = await HomeCacheService.getTransactionsFromCache();
+      const cachedStats = await HomeCacheService.getStatsFromCache();
+
+      if (cachedTransactions) {
+        setTransactions(cachedTransactions);
+        if (cachedStats) {
+          setTotalInEscrow(cachedStats.totalInEscrow || 0);
+          setIncoming(cachedStats.incoming || 0);
+          setOutgoing(cachedStats.outgoing || 0);
+        }
+        setLoading(false);
       } else {
         setLoading(true);
       }
+    }
 
-      // Use test data for test user
-      if (isTestUser) {
-        setTransactions(testTransactions);
-        setTotalInEscrow(testTotalInEscrow);
-        setIncoming(testIncoming);
-        setOutgoing(testOutgoing);
-        setLoading(false);
-        setRefreshing(false);
-        return;
+    // Use test data for test user
+    if (isTestUser) {
+      setTransactions(testTransactions);
+      setTotalInEscrow(testTotalInEscrow);
+      setIncoming(testIncoming);
+      setOutgoing(testOutgoing);
+      setLoading(false);
+      setRefreshing(false);
+      return;
+    }
+
+    try {
+      // Fetch transactions
+      const transactionsResult = await DatabaseService.getTransactions(state.user.id);
+      if (transactionsResult.data) {
+        // Format transactions for display
+        const formattedTransactions = await Promise.all(
+          transactionsResult.data.map(async (txn) => {
+            // Get buyer and seller names
+            let buyerName = 'Buyer';
+            let sellerName = 'Seller';
+
+            if (txn.buyer_id === state.user.id) {
+              buyerName = getUserDisplayName();
+            } else if (txn.buyer_profile?.name) {
+              buyerName = txn.buyer_profile.name;
+            } else if (txn.buyer_id) {
+              const buyerProfile = await DatabaseService.getUserProfile(txn.buyer_id);
+              buyerName = buyerProfile.data?.name || 'Buyer';
+            }
+
+            if (txn.seller_id === state.user.id) {
+              sellerName = getUserDisplayName();
+            } else if (txn.seller_profile?.name) {
+              sellerName = txn.seller_profile.name;
+            } else if (txn.seller_id) {
+              const sellerProfile = await DatabaseService.getUserProfile(txn.seller_id);
+              sellerName = sellerProfile.data?.name || 'Seller';
+            }
+
+            return {
+              id: txn.id,
+              title: txn.title,
+              startDate: new Date(txn.start_date || txn.created_at).toLocaleDateString('en-US', {
+                month: 'short',
+                day: 'numeric',
+                year: 'numeric'
+              }),
+              buyer: buyerName,
+              seller: sellerName,
+              buyerId: txn.buyer_id,
+              sellerId: txn.seller_id,
+              amount: parseFloat(txn.amount || 0),
+              status: txn.status || 'In Progress',
+              role: txn.buyer_id === state.user.id ? 'Buyer' : 'Seller',
+              category: txn.category,
+              feesResponsibility: txn.fees_responsibility,
+              deliveryDate: txn.delivery_date,
+              terms: txn.transaction_terms?.map(term => term.term) || [],
+            };
+          })
+        );
+        setTransactions(formattedTransactions);
+
+        // Calculate escrow totals
+        const inEscrow = formattedTransactions
+          .filter(t => {
+            const status = (t.status || '').toLowerCase().trim();
+            return status !== 'completed' && status !== 'cancelled';
+          })
+          .reduce((sum, t) => sum + t.amount, 0);
+        setTotalInEscrow(inEscrow);
+
+        const incomingAmount = formattedTransactions
+          .filter(t => {
+            const status = (t.status || '').toLowerCase().trim();
+            return t.role === 'Seller' && status !== 'completed' && status !== 'cancelled';
+          })
+          .reduce((sum, t) => sum + t.amount, 0);
+        setIncoming(incomingAmount);
+
+        const outgoingAmount = formattedTransactions
+          .filter(t => {
+            const status = (t.status || '').toLowerCase().trim();
+            return t.role === 'Buyer' && status !== 'completed' && status !== 'cancelled';
+          })
+          .reduce((sum, t) => sum + t.amount, 0);
+        setOutgoing(outgoingAmount);
+
+        // Save to cache
+        await HomeCacheService.saveTransactionsToCache(formattedTransactions);
+        await HomeCacheService.saveStatsToCache({
+          totalInEscrow: inEscrow,
+          incoming: incomingAmount,
+          outgoing: outgoingAmount
+        });
       }
 
-      try {
-        // Fetch transactions
-        const transactionsResult = await DatabaseService.getTransactions(state.user.id);
-        if (transactionsResult.data) {
-          // Format transactions for display
-          const formattedTransactions = await Promise.all(
-            transactionsResult.data.map(async (txn) => {
-              // Get buyer and seller names
-              let buyerName = 'Buyer';
-              let sellerName = 'Seller';
-              
-              if (txn.buyer_id === state.user.id) {
-                buyerName = getUserDisplayName();
-              } else if (txn.buyer_profile?.name) {
-                buyerName = txn.buyer_profile.name;
-              } else if (txn.buyer_id) {
-                const buyerProfile = await DatabaseService.getUserProfile(txn.buyer_id);
-                buyerName = buyerProfile.data?.name || 'Buyer';
-              }
-              
-              if (txn.seller_id === state.user.id) {
-                sellerName = getUserDisplayName();
-              } else if (txn.seller_profile?.name) {
-                sellerName = txn.seller_profile.name;
-              } else if (txn.seller_id) {
-                const sellerProfile = await DatabaseService.getUserProfile(txn.seller_id);
-                sellerName = sellerProfile.data?.name || 'Seller';
-              }
-
-              return {
-                id: txn.id,
-                title: txn.title,
-                startDate: new Date(txn.start_date || txn.created_at).toLocaleDateString('en-US', { 
-                  month: 'short', 
-                  day: 'numeric', 
-                  year: 'numeric' 
-                }),
-                buyer: buyerName,
-                seller: sellerName,
-                buyerId: txn.buyer_id,
-                sellerId: txn.seller_id,
-                amount: parseFloat(txn.amount || 0),
-                status: txn.status || 'In Progress',
-                role: txn.buyer_id === state.user.id ? 'Buyer' : 'Seller',
-                category: txn.category,
-                feesResponsibility: txn.fees_responsibility,
-                deliveryDate: txn.delivery_date,
-                terms: txn.transaction_terms?.map(term => term.term) || [],
-              };
-            })
-          );
-          setTransactions(formattedTransactions);
-
-          // Calculate escrow totals
-          const inEscrow = formattedTransactions
-            .filter(t => {
-              const status = (t.status || '').toLowerCase().trim();
-              return status !== 'completed' && status !== 'cancelled';
-            })
-            .reduce((sum, t) => sum + t.amount, 0);
-          setTotalInEscrow(inEscrow);
-
-          const incomingAmount = formattedTransactions
-            .filter(t => {
-              const status = (t.status || '').toLowerCase().trim();
-              return t.role === 'Seller' && status !== 'completed' && status !== 'cancelled';
-            })
-            .reduce((sum, t) => sum + t.amount, 0);
-          setIncoming(incomingAmount);
-
-          const outgoingAmount = formattedTransactions
-            .filter(t => {
-              const status = (t.status || '').toLowerCase().trim();
-              return t.role === 'Buyer' && status !== 'completed' && status !== 'cancelled';
-            })
-            .reduce((sum, t) => sum + t.amount, 0);
-          setOutgoing(outgoingAmount);
-        }
-
-        setLoading(false);
-        setRefreshing(false);
-      } catch (error) {
-        console.error('Error fetching data:', error);
-        setLoading(false);
-        setRefreshing(false);
-      }
-    }, [state.user?.id, isTestUser, getUserDisplayName]);
+      setLoading(false);
+      setRefreshing(false);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      setLoading(false);
+      setRefreshing(false);
+    }
+  }, [state.user?.id, isTestUser, getUserDisplayName]);
 
   // Handle pull-to-refresh
   const onRefresh = useCallback(() => {
@@ -241,7 +264,7 @@ export default function HomeScreen() {
 
     console.log('Setting up realtime subscription for transactions...');
     console.log('User ID:', state.user.id);
-    
+
     // Subscribe to INSERT and DELETE events on transactions table
     // Listen to all INSERT events and filter in the callback to catch both buyer and seller cases
     const channel = supabase
@@ -256,7 +279,7 @@ export default function HomeScreen() {
         (payload) => {
           console.log('New transaction detected:', payload.new);
           const newTransaction = payload.new;
-          
+
           // Check if this transaction involves the current user
           if (newTransaction.buyer_id === state.user.id || newTransaction.seller_id === state.user.id) {
             console.log('Transaction involves current user, refreshing data...');
@@ -279,7 +302,7 @@ export default function HomeScreen() {
         (payload) => {
           console.log('Transaction updated:', payload.new);
           const updatedTransaction = payload.new;
-          
+
           // Check if this transaction involves the current user
           if (updatedTransaction.buyer_id === state.user.id || updatedTransaction.seller_id === state.user.id) {
             console.log('Updated transaction involves current user, refreshing data...');
@@ -302,7 +325,7 @@ export default function HomeScreen() {
         (payload) => {
           console.log('Transaction deleted:', payload.old);
           const deletedTransaction = payload.old;
-          
+
           // Check if this transaction involved the current user
           if (deletedTransaction.buyer_id === state.user.id || deletedTransaction.seller_id === state.user.id) {
             console.log('Deleted transaction involved current user, removing from list...');
@@ -310,7 +333,7 @@ export default function HomeScreen() {
             const deletedId = deletedTransaction.id;
             setTransactions(prevTransactions => {
               const updated = prevTransactions.filter(t => t.id !== deletedId);
-              
+
               // Recalculate totals
               const inEscrow = updated
                 .filter(t => {
@@ -335,7 +358,15 @@ export default function HomeScreen() {
                 })
                 .reduce((sum, t) => sum + t.amount, 0);
               setOutgoing(outgoingAmount);
-              
+
+              // Save to cache
+              HomeCacheService.saveTransactionsToCache(updated);
+              HomeCacheService.saveStatsToCache({
+                totalInEscrow: inEscrow,
+                incoming: incomingAmount,
+                outgoing: outgoingAmount
+              });
+
               return updated;
             });
           } else {
@@ -444,8 +475,8 @@ export default function HomeScreen() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" />
-      <ScrollView 
-        style={styles.scrollView} 
+      <ScrollView
+        style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl
@@ -523,7 +554,7 @@ export default function HomeScreen() {
         </View>
 
         {/* New Transaction Button */}
-        <TouchableOpacity 
+        <TouchableOpacity
           style={[styles.newTransactionButton, isRTL && styles.newTransactionButtonRTL]}
           onPress={() => router.push('/(app)/new-transaction')}
         >
@@ -534,7 +565,7 @@ export default function HomeScreen() {
         {/* Transactions List */}
         <View style={[styles.transactionsHeader, isRTL && styles.transactionsHeaderRTL]}>
           <Text style={[styles.transactionsTitle, isRTL && styles.textRTL]}>{t('transactions')} ({filteredTransactions.length})</Text>
-          <TouchableOpacity 
+          <TouchableOpacity
             onPress={() => setShowFilterRow(!showFilterRow)}
             style={styles.filterIconButton}
             activeOpacity={0.7}
@@ -651,13 +682,13 @@ export default function HomeScreen() {
               };
               return statusMap[s] || status;
             };
-            
+
             const normalizedStatus = normalizeStatus(transaction.status);
             const statusColors = getStateColors(normalizedStatus);
             const statusDisplayName = getTranslatedStatusName(normalizedStatus, t);
             const roleColors = getRoleColor(transaction.role);
             const isOutgoing = transaction.role === 'Buyer';
-            
+
             return (
               <TouchableOpacity
                 key={transaction.id}

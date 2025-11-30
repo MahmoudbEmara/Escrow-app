@@ -1,10 +1,11 @@
-import React, { useState, useContext, useEffect, useCallback } from 'react';
-import { View, TextInput, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useContext, useEffect } from 'react';
+import { View, TextInput, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, KeyboardAvoidingView, Platform, SafeAreaView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { AuthContext } from '../../src/context/AuthContext';
 import { LanguageContext } from '../../src/context/LanguageContext';
 import { StatusBar } from 'react-native';
 import * as DatabaseService from '../../src/services/databaseService';
+import { User, Lock, Mail, Eye, EyeOff, Check, X, ArrowRight, ArrowLeft } from 'lucide-react-native';
 
 export default function LoginRoute() {
   const { signIn, signUp } = useContext(AuthContext);
@@ -23,6 +24,7 @@ export default function LoginRoute() {
   const [err, setErr] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [saveLoginInfo, setSaveLoginInfo] = useState(false);
+  const [loading, setLoading] = useState(false);
 
   // Debounced username check
   useEffect(() => {
@@ -33,7 +35,7 @@ export default function LoginRoute() {
     }
 
     const trimmedUsername = username.trim().toLowerCase();
-    
+
     // Basic validation
     if (trimmedUsername.length < 3) {
       setUsernameStatus('invalid');
@@ -81,7 +83,7 @@ export default function LoginRoute() {
     }
 
     const trimmedEmail = email.trim().toLowerCase();
-    
+
     // Basic email format validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(trimmedEmail)) {
@@ -110,325 +112,341 @@ export default function LoginRoute() {
 
   const handleSubmit = async () => {
     setErr(null);
-    
-    // Validation
-    if (!email.trim()) {
-      setErr(isLogin ? 'Email or username is required' : 'Email is required');
-      return;
-    }
-    
-    // Email format validation (only for signup)
-    if (!isLogin) {
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email.trim())) {
-        setErr('Please enter a valid email address');
-        return;
-      }
-    }
-    
-    if (!password.trim()) {
-      setErr('Password is required');
-      return;
-    }
-    
-    if (isLogin) {
-      const res = await signIn(email.trim(), password);
-      if (res?.error) {
-        setErr(res.error);
-      } else if (res?.token) {
-        router.replace('/(app)/home');
-      } else {
-        setErr(res?.message || t('loginFailed') || 'Login failed');
-      }
-    } else {
-      if (!firstName.trim()) {
-        setErr('First name is required');
-        return;
-      }
-      if (!lastName.trim()) {
-        setErr('Last name is required');
-        return;
-      }
-      if (!username.trim()) {
-        setErr('Username is required');
-        return;
-      }
-      if (usernameStatus !== 'available') {
-        setErr('Please choose an available username');
-        return;
-      }
+    setLoading(true);
+
+    try {
+      // Validation
       if (!email.trim()) {
-        setErr('Email is required');
+        setErr(isLogin ? 'Email or username is required' : 'Email is required');
+        setLoading(false);
         return;
       }
-      // Email format validation for signup
-      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-      if (!emailRegex.test(email.trim())) {
-        setErr('Please enter a valid email address');
+
+      // Email format validation (only for signup)
+      if (!isLogin) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email.trim())) {
+          setErr('Please enter a valid email address');
+          setLoading(false);
+          return;
+        }
+      }
+
+      if (!password.trim()) {
+        setErr('Password is required');
+        setLoading(false);
         return;
       }
-      if (emailStatus === 'taken') {
-        setErr('This email is already registered. Please sign in instead.');
-        return;
-      }
-      if (emailStatus === 'checking') {
-        setErr('Please wait while we check email availability');
-        return;
-      }
-      if (password.length < 6) {
-        setErr('Password must be at least 6 characters');
-        return;
-      }
-      
-      const res = await signUp(firstName.trim(), lastName.trim(), username.trim(), email.trim(), password);
-      if (res?.error) {
-        setErr(res.error);
-      } else if (res?.token) {
-        // If token exists, user is logged in (email verification might not be required)
-        router.replace('/(app)/home');
-      } else if (res?.user) {
-        // User created but email verification required
-        router.replace('/(auth)/email-verification');
-      } else if (res?.message) {
-        // Email verification required
-        router.replace('/(auth)/email-verification');
+
+      if (isLogin) {
+        const res = await signIn(email.trim(), password);
+        if (res?.error) {
+          setErr(res.error);
+        } else if (res?.token) {
+          router.replace('/(app)/home');
+        } else {
+          setErr(res?.message || t('loginFailed') || 'Login failed');
+        }
       } else {
-        setErr('Sign up failed');
+        if (!firstName.trim()) {
+          setErr('First name is required');
+          setLoading(false);
+          return;
+        }
+        if (!lastName.trim()) {
+          setErr('Last name is required');
+          setLoading(false);
+          return;
+        }
+        if (!username.trim()) {
+          setErr('Username is required');
+          setLoading(false);
+          return;
+        }
+        if (usernameStatus !== 'available') {
+          setErr('Please choose an available username');
+          setLoading(false);
+          return;
+        }
+        if (!email.trim()) {
+          setErr('Email is required');
+          setLoading(false);
+          return;
+        }
+        // Email format validation for signup
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(email.trim())) {
+          setErr('Please enter a valid email address');
+          setLoading(false);
+          return;
+        }
+        if (emailStatus === 'taken') {
+          setErr('This email is already registered. Please sign in instead.');
+          setLoading(false);
+          return;
+        }
+        if (emailStatus === 'checking') {
+          setErr('Please wait while we check email availability');
+          setLoading(false);
+          return;
+        }
+        if (password.length < 6) {
+          setErr('Password must be at least 6 characters');
+          setLoading(false);
+          return;
+        }
+
+        const res = await signUp(firstName.trim(), lastName.trim(), username.trim(), email.trim(), password);
+        if (res?.error) {
+          setErr(res.error);
+        } else if (res?.token) {
+          // If token exists, user is logged in (email verification might not be required)
+          router.replace('/(app)/home');
+        } else if (res?.user) {
+          // User created but email verification required
+          router.replace('/(auth)/email-verification');
+        } else if (res?.message) {
+          // Email verification required
+          router.replace('/(auth)/email-verification');
+        } else {
+          setErr('Sign up failed');
+        }
       }
+    } catch (error) {
+      setErr('An unexpected error occurred');
+      console.error(error);
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
-    <KeyboardAvoidingView 
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
-    >
-      <StatusBar barStyle="dark-content" />
-      <ScrollView 
-        contentContainerStyle={styles.scrollContent} 
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {/* Header Section */}
-        <View style={styles.headerSection}>
-          <Text style={[styles.mainTitle, isRTL && styles.mainTitleRTL]}>{t('loginOrSignUp')}</Text>
-          <Text style={[styles.tagline, isRTL && styles.taglineRTL]}>{t('loginTagline')}</Text>
-        </View>
+    <View style={styles.container}>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
 
-        {/* Login/SignUp Toggle */}
-        <View style={[styles.toggleContainer, isRTL && styles.toggleContainerRTL]}>
-          <TouchableOpacity
-            style={[styles.toggleOption, isLogin && styles.toggleOptionActive]}
-            onPress={() => {
-              setIsLogin(true);
-              setErr(null);
-              setFirstName('');
-              setLastName('');
-              setUsername('');
-              setUsernameStatus(null);
-              setUsernameError('');
-            }}
-          >
-            <Text style={[styles.toggleText, isLogin && styles.toggleTextActive]}>{t('login')}</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.toggleOption, !isLogin && styles.toggleOptionActive]}
-            onPress={() => {
-              setIsLogin(false);
-              setErr(null);
-            }}
-          >
-            <Text style={[styles.toggleText, !isLogin && styles.toggleTextActive]}>{t('signUp')}</Text>
-          </TouchableOpacity>
-        </View>
+      {/* Background Elements */}
+      <View style={styles.backgroundCircle1} />
+      <View style={styles.backgroundCircle2} />
 
-        {/* Input Fields */}
-        <View style={styles.inputContainer}>
-          {!isLogin && (
-            <>
-              <View style={[styles.nameRow, isRTL && styles.nameRowRTL]}>
-                <View style={[styles.inputWrapper, styles.nameFieldWrapper]}>
-                  <TextInput
-                    style={[styles.input, isRTL && styles.inputRTL]}
-                    placeholder={t('First Name') || 'First name'}
-                    value={firstName}
-                    onChangeText={setFirstName}
-                    textAlign={isRTL ? 'right' : 'left'}
-                    placeholderTextColor="#94a3b8"
-                  />
-                </View>
-                <View style={[styles.inputWrapper, styles.nameFieldWrapper]}>
-                  <TextInput
-                    style={[styles.input, isRTL && styles.inputRTL]}
-                    placeholder={t('Last Name') || 'Last name'}
-                    value={lastName}
-                    onChangeText={setLastName}
-                    textAlign={isRTL ? 'right' : 'left'}
-                    placeholderTextColor="#94a3b8"
-                  />
+      <SafeAreaView style={styles.safeArea}>
+        <KeyboardAvoidingView
+          style={styles.keyboardView}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+        >
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {/* Header Section */}
+            <View style={styles.headerSection}>
+              <View style={styles.logoContainer}>
+                <View style={styles.logoIcon}>
+                  <Lock size={32} color="#4F46E5" />
                 </View>
               </View>
-              <View style={styles.inputWrapper}>
-                <View style={styles.usernameContainer}>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      isRTL && styles.inputRTL,
+              <Text style={[styles.mainTitle, isRTL && styles.textRTL]}>
+                {t('loginOrSignUp')}
+              </Text>
+              <Text style={[styles.tagline, isRTL && styles.textRTL]}>
+                {t('loginTagline')}
+              </Text>
+            </View>
+
+            {/* Login/SignUp Toggle */}
+            <View style={[styles.toggleContainer, isRTL && styles.toggleContainerRTL]}>
+              <TouchableOpacity
+                style={[styles.toggleOption, isLogin && styles.toggleOptionActive]}
+                onPress={() => {
+                  setIsLogin(true);
+                  setErr(null);
+                  setFirstName('');
+                  setLastName('');
+                  setUsername('');
+                  setUsernameStatus(null);
+                  setUsernameError('');
+                }}
+              >
+                <Text style={[styles.toggleText, isLogin && styles.toggleTextActive]}>{t('login')}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.toggleOption, !isLogin && styles.toggleOptionActive]}
+                onPress={() => {
+                  setIsLogin(false);
+                  setErr(null);
+                }}
+              >
+                <Text style={[styles.toggleText, !isLogin && styles.toggleTextActive]}>{t('signUp')}</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Input Fields */}
+            <View style={styles.inputContainer}>
+              {!isLogin && (
+                <>
+                  <View style={[styles.nameRow, isRTL && styles.nameRowRTL]}>
+                    <View style={[styles.inputWrapper, styles.nameFieldWrapper]}>
+                      <Text style={[styles.inputLabel, isRTL && styles.textRTL]}>{t('firstName') || 'First Name'}</Text>
+                      <View style={[styles.inputFieldContainer, isRTL && styles.inputFieldContainerRTL]}>
+                        <User size={20} color="#94a3b8" style={styles.inputIcon} />
+                        <TextInput
+                          style={[styles.input, isRTL && styles.inputRTL]}
+                          placeholder={t('firstName') || 'First name'}
+                          value={firstName}
+                          onChangeText={setFirstName}
+                          textAlign={isRTL ? 'right' : 'left'}
+                          placeholderTextColor="#94a3b8"
+                        />
+                      </View>
+                    </View>
+                    <View style={[styles.inputWrapper, styles.nameFieldWrapper]}>
+                      <Text style={[styles.inputLabel, isRTL && styles.textRTL]}>{t('lastName') || 'Last Name'}</Text>
+                      <View style={[styles.inputFieldContainer, isRTL && styles.inputFieldContainerRTL]}>
+                        <User size={20} color="#94a3b8" style={styles.inputIcon} />
+                        <TextInput
+                          style={[styles.input, isRTL && styles.inputRTL]}
+                          placeholder={t('lastName') || 'Last name'}
+                          value={lastName}
+                          onChangeText={setLastName}
+                          textAlign={isRTL ? 'right' : 'left'}
+                          placeholderTextColor="#94a3b8"
+                        />
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.inputWrapper}>
+                    <Text style={[styles.inputLabel, isRTL && styles.textRTL]}>{t('username') || 'Username'}</Text>
+                    <View style={[
+                      styles.inputFieldContainer,
+                      isRTL && styles.inputFieldContainerRTL,
                       usernameStatus === 'available' && styles.inputValid,
                       (usernameStatus === 'taken' || usernameStatus === 'invalid') && styles.inputInvalid
-                    ]}
-                    placeholder="Username"
-                    value={username}
-                    onChangeText={(text) => {
-                      // Convert to lowercase and remove spaces
-                      const cleaned = text.toLowerCase().replace(/\s/g, '');
-                      setUsername(cleaned);
-                    }}
+                    ]}>
+                      <User size={20} color="#94a3b8" style={styles.inputIcon} />
+                      <TextInput
+                        style={[styles.input, isRTL && styles.inputRTL]}
+                        placeholder="Username"
+                        value={username}
+                        onChangeText={(text) => {
+                          const cleaned = text.toLowerCase().replace(/\s/g, '');
+                          setUsername(cleaned);
+                        }}
+                        textAlign={isRTL ? 'right' : 'left'}
+                        placeholderTextColor="#94a3b8"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                      />
+                      {usernameStatus === 'checking' && <ActivityIndicator size="small" color="#64748b" />}
+                      {usernameStatus === 'available' && <Check size={20} color="#22c55e" />}
+                      {(usernameStatus === 'taken' || usernameStatus === 'invalid') && <X size={20} color="#ef4444" />}
+                    </View>
+                    {usernameStatus && usernameStatus !== 'checking' && usernameStatus !== 'available' && (
+                      <Text style={[styles.errorHelperText, isRTL && styles.textRTL]}>{usernameError}</Text>
+                    )}
+                  </View>
+                </>
+              )}
+
+              <View style={styles.inputWrapper}>
+                <Text style={[styles.inputLabel, isRTL && styles.textRTL]}>
+                  {isLogin ? (t('emailOrUsername') || 'Email or Username') : (t('email') || 'Email')}
+                </Text>
+                <View style={[
+                  styles.inputFieldContainer,
+                  isRTL && styles.inputFieldContainerRTL,
+                  !isLogin && emailStatus === 'available' && styles.inputValid,
+                  !isLogin && (emailStatus === 'taken' || emailStatus === 'invalid') && styles.inputInvalid
+                ]}>
+                  <Mail size={20} color="#94a3b8" style={styles.inputIcon} />
+                  <TextInput
+                    style={[styles.input, isRTL && styles.inputRTL]}
+                    placeholder={isLogin ? "Email or Username" : "Email"}
+                    value={email}
+                    onChangeText={setEmail}
                     textAlign={isRTL ? 'right' : 'left'}
                     placeholderTextColor="#94a3b8"
+                    keyboardType={isLogin ? "default" : "email-address"}
                     autoCapitalize="none"
                     autoCorrect={false}
                   />
-                  {usernameStatus === 'checking' && (
-                    <View style={[styles.usernameIndicator, isRTL && styles.usernameIndicatorRTL]}>
-                      <ActivityIndicator size="small" color="#64748b" />
-                    </View>
-                  )}
-                  {usernameStatus === 'available' && (
-                    <View style={[styles.usernameIndicator, isRTL && styles.usernameIndicatorRTL]}>
-                      <Text style={styles.usernameCheckIcon}>✓</Text>
-                    </View>
-                  )}
-                  {(usernameStatus === 'taken' || usernameStatus === 'invalid') && (
-                    <View style={[styles.usernameIndicator, isRTL && styles.usernameIndicatorRTL]}>
-                      <Text style={styles.usernameErrorIcon}>✕</Text>
-                    </View>
-                  )}
+                  {!isLogin && emailStatus === 'checking' && <ActivityIndicator size="small" color="#64748b" />}
+                  {!isLogin && emailStatus === 'available' && <Check size={20} color="#22c55e" />}
+                  {!isLogin && (emailStatus === 'taken' || emailStatus === 'invalid') && <X size={20} color="#ef4444" />}
                 </View>
-                {usernameStatus && usernameStatus !== 'checking' && usernameStatus !== 'available' && (
-                  <Text style={[styles.usernameErrorText, isRTL && styles.textRTL]}>
-                    {usernameError}
-                  </Text>
-                )}
-                {usernameStatus === 'available' && (
-                  <Text style={[styles.usernameSuccessText, isRTL && styles.textRTL]}>
-                    Username is available
-                  </Text>
+                {!isLogin && emailStatus && emailStatus !== 'checking' && emailStatus !== 'available' && (
+                  <Text style={[styles.errorHelperText, isRTL && styles.textRTL]}>{emailError}</Text>
                 )}
               </View>
-            </>
-          )}
 
-          <View style={styles.inputWrapper}>
-            <View style={!isLogin ? styles.emailContainer : null}>
-              <TextInput
-                style={[
-                  styles.input, 
-                  isRTL && styles.inputRTL,
-                  !isLogin && emailStatus === 'available' && styles.inputValid,
-                  !isLogin && (emailStatus === 'taken' || emailStatus === 'invalid') && styles.inputInvalid
-                ]}
-                placeholder={isLogin ? "Email or Username" : "Email"}
-                value={email}
-                onChangeText={setEmail}
-                textAlign={isRTL ? 'right' : 'left'}
-                placeholderTextColor="#94a3b8"
-                keyboardType={isLogin ? "default" : "email-address"}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-              {!isLogin && emailStatus === 'checking' && (
-                <View style={[styles.usernameIndicator, isRTL && styles.usernameIndicatorRTL]}>
-                  <ActivityIndicator size="small" color="#64748b" />
+              <View style={styles.inputWrapper}>
+                <Text style={[styles.inputLabel, isRTL && styles.textRTL]}>{t('password') || 'Password'}</Text>
+                <View style={[styles.inputFieldContainer, isRTL && styles.inputFieldContainerRTL]}>
+                  <Lock size={20} color="#94a3b8" style={styles.inputIcon} />
+                  <TextInput
+                    style={[styles.input, isRTL && styles.inputRTL]}
+                    placeholder={t('password') || 'Password'}
+                    value={password}
+                    onChangeText={setPassword}
+                    secureTextEntry={!showPassword}
+                    textAlign={isRTL ? 'right' : 'left'}
+                    placeholderTextColor="#94a3b8"
+                  />
+                  <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                    {showPassword ? <EyeOff size={20} color="#94a3b8" /> : <Eye size={20} color="#94a3b8" />}
+                  </TouchableOpacity>
                 </View>
-              )}
-              {!isLogin && emailStatus === 'available' && (
-                <View style={[styles.usernameIndicator, isRTL && styles.usernameIndicatorRTL]}>
-                  <Text style={styles.usernameCheckIcon}>✓</Text>
-                </View>
-              )}
-              {!isLogin && (emailStatus === 'taken' || emailStatus === 'invalid') && (
-                <View style={[styles.usernameIndicator, isRTL && styles.usernameIndicatorRTL]}>
-                  <Text style={styles.usernameErrorIcon}>✕</Text>
-                </View>
-              )}
-              {isLogin && email.length > 0 && (
-                <TouchableOpacity
-                  style={[styles.clearButton, isRTL && styles.clearButtonRTL]}
-                  onPress={() => setEmail('')}
-                >
-                  <Text style={styles.clearIcon}>✕</Text>
-                </TouchableOpacity>
-              )}
+              </View>
             </View>
-            {!isLogin && emailStatus && emailStatus !== 'checking' && emailStatus !== 'available' && (
-              <Text style={[styles.usernameErrorText, isRTL && styles.textRTL]}>
-                {emailError}
-              </Text>
-            )}
-            {!isLogin && emailStatus === 'available' && (
-              <Text style={[styles.usernameSuccessText, isRTL && styles.textRTL]}>
-                Email is available
-              </Text>
-            )}
-          </View>
 
-          <View style={styles.inputWrapper}>
-            <TextInput
-              style={[styles.input, isRTL && styles.inputRTL]}
-              placeholder={t('password') || 'Password'}
-              value={password}
-              onChangeText={setPassword}
-              secureTextEntry={!showPassword}
-              textAlign={isRTL ? 'right' : 'left'}
-              placeholderTextColor="#94a3b8"
-            />
-            <View style={[styles.passwordActions, isRTL && styles.passwordActionsRTL]}>
-              {password.length > 0 && (
+            {/* Error Message */}
+            {err && (
+              <View style={styles.errorContainer}>
+                <X size={16} color="#ef4444" />
+                <Text style={[styles.errorText, isRTL && styles.textRTL]}>{err}</Text>
+              </View>
+            )}
+
+            {/* Options Row */}
+            {isLogin && (
+              <View style={[styles.optionsRow, isRTL && styles.optionsRowRTL]}>
+                <TouchableOpacity
+                  style={styles.checkboxContainer}
+                  onPress={() => setSaveLoginInfo(!saveLoginInfo)}
+                >
+                  <View style={[styles.checkbox, saveLoginInfo && styles.checkboxChecked]}>
+                    {saveLoginInfo && <Check size={12} color="#ffffff" />}
+                  </View>
+                  <Text style={[styles.checkboxLabel, isRTL && styles.checkboxLabelRTL]}>{t('saveLoginInfo')}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity>
+                  <Text style={styles.forgotPassword}>{t('forgotPassword')}</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Primary Button */}
+            <TouchableOpacity
+              style={[styles.primaryButton, loading && styles.primaryButtonDisabled]}
+              onPress={handleSubmit}
+              disabled={loading}
+              activeOpacity={0.8}
+            >
+              {loading ? (
+                <ActivityIndicator color="#ffffff" />
+              ) : (
                 <>
-                  <TouchableOpacity onPress={() => setShowPassword(!showPassword)} style={styles.eyeButton}>
-                    <Text style={styles.eyeIcon}>{showPassword ? '👁️' : '👁️‍🗨️'}</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity onPress={() => setPassword('')} style={styles.passwordClearButton}>
-                    <Text style={styles.clearIcon}>✕</Text>
-                  </TouchableOpacity>
+                  <Text style={styles.primaryButtonText}>{isLogin ? t('loginButton') : t('signUpButton')}</Text>
+                  {isRTL ? <ArrowLeft size={20} color="#ffffff" /> : <ArrowRight size={20} color="#ffffff" />}
                 </>
               )}
-            </View>
-          </View>
-        </View>
-
-        {/* Error Message */}
-        {err && <Text style={[styles.errorText, isRTL && styles.errorTextRTL]}>{err}</Text>}
-
-        {/* Options Row */}
-        {isLogin && (
-          <View style={[styles.optionsRow, isRTL && styles.optionsRowRTL]}>
-            <TouchableOpacity
-              style={styles.checkboxContainer}
-              onPress={() => setSaveLoginInfo(!saveLoginInfo)}
-            >
-              <View style={[styles.checkbox, saveLoginInfo && styles.checkboxChecked]}>
-                {saveLoginInfo && <Text style={styles.checkmark}>✓</Text>}
-              </View>
-              <Text style={[styles.checkboxLabel, isRTL && styles.checkboxLabelRTL]}>{t('saveLoginInfo')}</Text>
             </TouchableOpacity>
-            <TouchableOpacity>
-              <Text style={styles.forgotPassword}>{t('forgotPassword')}</Text>
-            </TouchableOpacity>
-          </View>
-        )}
 
-        {/* Primary Button */}
-        <TouchableOpacity style={styles.primaryButton} onPress={handleSubmit}>
-          <Text style={styles.primaryButtonText}>{isLogin ? t('loginButton') : t('signUpButton')}</Text>
-        </TouchableOpacity>
-
-        {/* Test Hint */}
-        <Text style={[styles.testHint, isRTL && styles.testHintRTL]}>{t('testHint')}</Text>
-      </ScrollView>
-    </KeyboardAvoidingView>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    </View>
   );
 }
 
@@ -437,58 +455,76 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#ffffff',
   },
+  safeArea: {
+    flex: 1,
+  },
+  keyboardView: {
+    flex: 1,
+  },
+  backgroundCircle1: {
+    position: 'absolute',
+    top: -100,
+    left: -100,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: '#F1F5F9',
+    opacity: 0.5,
+  },
+  backgroundCircle2: {
+    position: 'absolute',
+    bottom: -50,
+    right: -50,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: '#F8FAFC',
+    opacity: 0.8,
+  },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'flex-start',
-    paddingHorizontal: 20,
-    paddingTop: 120,
-    paddingBottom: 100,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#f1f5f9',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  backButtonRTL: {
-    alignSelf: 'flex-end',
-  },
-  backArrow: {
-    fontSize: 24,
-    color: '#0f172a',
-    fontWeight: 'bold',
+    paddingHorizontal: 24,
+    paddingTop: 40,
+    paddingBottom: 40,
   },
   headerSection: {
     marginBottom: 32,
     alignItems: 'center',
   },
+  logoContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#EEF2FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+  },
+  logoIcon: {
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   mainTitle: {
     fontSize: 28,
-    fontWeight: 'bold',
+    fontWeight: '800',
     color: '#0f172a',
-    marginBottom: 12,
+    marginBottom: 8,
     textAlign: 'center',
-  },
-  mainTitleRTL: {
-    textAlign: 'right',
   },
   tagline: {
-    fontSize: 14,
+    fontSize: 16,
     color: '#64748b',
-    lineHeight: 20,
     textAlign: 'center',
-    paddingHorizontal: 20,
   },
-  taglineRTL: {
+  textRTL: {
     textAlign: 'right',
   },
   toggleContainer: {
     flexDirection: 'row',
-    backgroundColor: '#f1f5f9',
-    borderRadius: 12,
+    backgroundColor: '#F1F5F9',
+    borderRadius: 16,
     padding: 4,
     marginBottom: 32,
   },
@@ -498,28 +534,27 @@ const styles = StyleSheet.create({
   toggleOption: {
     flex: 1,
     paddingVertical: 12,
-    borderRadius: 8,
+    borderRadius: 12,
     alignItems: 'center',
   },
   toggleOptionActive: {
     backgroundColor: '#ffffff',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.05,
     shadowRadius: 4,
     elevation: 2,
   },
   toggleText: {
-    fontSize: 16,
+    fontSize: 15,
     color: '#64748b',
-    fontWeight: '500',
+    fontWeight: '600',
   },
   toggleTextActive: {
     color: '#0f172a',
-    fontWeight: '600',
   },
   inputContainer: {
-    marginBottom: 20,
+    marginBottom: 24,
   },
   nameRow: {
     flexDirection: 'row',
@@ -534,74 +569,66 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   inputWrapper: {
-    position: 'relative',
-    marginBottom: 16,
+    marginBottom: 20,
+  },
+  inputLabel: {
+    fontSize: 14,
+    color: '#334155',
+    fontWeight: '600',
+    marginBottom: 8,
+  },
+  inputFieldContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F8FAFC',
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    height: 56,
+  },
+  inputFieldContainerRTL: {
+    flexDirection: 'row-reverse',
+  },
+  inputIcon: {
+    marginRight: 12,
   },
   input: {
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    borderRadius: 12,
-    padding: 16,
+    flex: 1,
     fontSize: 16,
     color: '#0f172a',
-    backgroundColor: '#ffffff',
+    height: '100%',
   },
   inputRTL: {
     textAlign: 'right',
   },
-  clearButton: {
-    position: 'absolute',
-    right: 12,
-    top: '50%',
-    marginTop: -10,
-    width: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
+  inputValid: {
+    borderColor: '#22c55e',
+    backgroundColor: '#F0FDF4',
   },
-  clearButtonRTL: {
-    right: 'auto',
-    left: 12,
+  inputInvalid: {
+    borderColor: '#ef4444',
+    backgroundColor: '#FEF2F2',
   },
-  clearIcon: {
-    fontSize: 14,
-    color: '#94a3b8',
+  errorHelperText: {
+    color: '#ef4444',
+    fontSize: 12,
+    marginTop: 6,
+    marginLeft: 4,
   },
-  passwordActions: {
-    position: 'absolute',
-    right: 12,
-    top: '50%',
-    marginTop: -10,
+  errorContainer: {
     flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#FEF2F2',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 24,
     gap: 8,
-  },
-  passwordActionsRTL: {
-    right: 'auto',
-    left: 12,
-  },
-  eyeButton: {
-    width: 24,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  passwordClearButton: {
-    width: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  eyeIcon: {
-    fontSize: 18,
   },
   errorText: {
     color: '#ef4444',
     fontSize: 14,
-    marginBottom: 16,
-    textAlign: 'center',
-  },
-  errorTextRTL: {
-    textAlign: 'right',
+    flex: 1,
   },
   optionsRow: {
     flexDirection: 'row',
@@ -620,19 +647,20 @@ const styles = StyleSheet.create({
     width: 20,
     height: 20,
     borderWidth: 2,
-    borderColor: '#cbd5e1',
-    borderRadius: 4,
+    borderColor: '#CBD5E1',
+    borderRadius: 6,
     marginRight: 8,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#ffffff',
   },
   checkboxChecked: {
-    backgroundColor: '#1e40af',
-    borderColor: '#1e40af',
+    backgroundColor: '#4F46E5',
+    borderColor: '#4F46E5',
   },
   checkboxLabel: {
     fontSize: 14,
-    color: '#0f172a',
+    color: '#334155',
   },
   checkboxLabelRTL: {
     marginRight: 0,
@@ -640,87 +668,30 @@ const styles = StyleSheet.create({
   },
   forgotPassword: {
     fontSize: 14,
-    color: '#64748b',
-    textDecorationLine: 'underline',
+    color: '#4F46E5',
+    fontWeight: '600',
   },
   primaryButton: {
-    backgroundColor: '#1e40af',
+    flexDirection: 'row',
+    backgroundColor: '#4F46E5',
     paddingVertical: 16,
-    borderRadius: 12,
+    borderRadius: 16,
     alignItems: 'center',
-    marginBottom: 16,
-    shadowColor: '#1e40af',
+    justifyContent: 'center',
+    marginBottom: 24,
+    shadowColor: '#4F46E5',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowRadius: 12,
+    elevation: 8,
+    gap: 8,
+  },
+  primaryButtonDisabled: {
+    opacity: 0.7,
   },
   primaryButtonText: {
     color: '#ffffff',
     fontSize: 16,
-    fontWeight: 'bold',
-    letterSpacing: 0.5,
-  },
-  testHint: {
-    color: '#64748b',
-    fontSize: 12,
-    textAlign: 'center',
-    fontStyle: 'italic',
-  },
-  testHintRTL: {
-    textAlign: 'right',
-  },
-  usernameContainer: {
-    position: 'relative',
-  },
-  emailContainer: {
-    position: 'relative',
-  },
-  usernameIndicator: {
-    position: 'absolute',
-    right: 12,
-    top: '50%',
-    marginTop: -10,
-    width: 20,
-    height: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  usernameIndicatorRTL: {
-    right: 'auto',
-    left: 12,
-  },
-  usernameCheckIcon: {
-    fontSize: 16,
-    color: '#22c55e',
-    fontWeight: 'bold',
-  },
-  usernameErrorIcon: {
-    fontSize: 16,
-    color: '#ef4444',
-    fontWeight: 'bold',
-  },
-  inputValid: {
-    borderColor: '#22c55e',
-    borderWidth: 2,
-  },
-  inputInvalid: {
-    borderColor: '#ef4444',
-    borderWidth: 2,
-  },
-  usernameErrorText: {
-    color: '#ef4444',
-    fontSize: 12,
-    marginTop: 4,
-    marginLeft: 4,
-  },
-  usernameSuccessText: {
-    color: '#22c55e',
-    fontSize: 12,
-    marginTop: 4,
-    marginLeft: 4,
-  },
-  textRTL: {
-    textAlign: 'right',
+    fontWeight: '700',
   },
 });

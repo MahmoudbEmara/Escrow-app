@@ -19,7 +19,7 @@ const translations = {
     easyTransactionsDesc: 'Complete your transactions with just a few taps. Our intuitive interface makes buying and selling simple and straightforward.',
     trustReliability: 'Trust & Reliability',
     trustReliabilityDesc: 'Join thousands of satisfied users who trust Edmnly for their secure transactions. Get started today and experience the difference.',
-    
+
     // Login
     login: 'Login',
     loginOrSignUp: 'Log in or Sign Up Today',
@@ -33,7 +33,13 @@ const translations = {
     testHint: 'Test: Use "test" / "test" to login',
     name: 'Name',
     signUpButton: 'Sign Up',
-    
+    createAccount: 'Create Account',
+    signUpTagline: 'Sign up to get started!',
+    firstName: 'First Name',
+    lastName: 'Last Name',
+    username: 'Username',
+    email: 'Email',
+
     // Home
     welcome: 'Welcome',
     goToTransactions: 'Go to Transactions',
@@ -57,7 +63,7 @@ const translations = {
     typeMessage: 'Type a message...',
     noMessages: 'No Messages',
     noMessagesDesc: 'You don\'t have any messages yet. Start a conversation from a transaction.',
-    
+
     // Wallet
     hello: 'Hello',
     yourWalletBalance: 'Your Wallet Balance',
@@ -71,31 +77,31 @@ const translations = {
     withdraw: 'Withdraw',
     recentTransactions: 'Recent Transactions',
     seeAll: 'See all',
-    
+
     // Transactions
     transactions: 'Transactions',
-    
+
     // Profile
     editProfile: 'Edit Profile',
     settings: 'Settings',
     helpSupport: 'Help & Support',
     noEmail: 'No email',
-    
+
     // Language
     language: 'Language',
     english: 'English',
     arabic: 'Arabic',
     default: 'Default',
-    
+
     // Tabs
     home: 'Home',
     wallet: 'Wallet',
-    
+
     // Common
     user: 'User',
     escrowApp: 'Escrow App',
     loginFailed: 'Login failed',
-    
+
     // Dashboard
     welcomeBack: 'Welcome back',
     totalInEscrow: 'Total in Escrow',
@@ -109,7 +115,7 @@ const translations = {
     seller: 'Seller',
     role: 'Role',
     status: 'Status',
-    
+
     // Wallet
     availableBalance: 'Available Balance',
     escrowBalance: 'Escrow Balance',
@@ -121,7 +127,7 @@ const translations = {
     fundsReleased: 'Funds released for transaction: {title}',
     fundsHeldInEscrow: 'Funds held in escrow for transaction: {title}',
     transaction: 'Transaction',
-    
+
     // Add Money
     enterAmount: 'Enter Amount',
     quickAmount: 'Quick Amount',
@@ -131,7 +137,7 @@ const translations = {
     inAppWallet: 'In-app Wallet',
     creditCard: 'Credit Card',
     cash: 'Cash',
-    
+
     // Withdraw
     selectWithdrawalMethod: 'Select Withdrawal Method',
     bankAccount: 'Bank Account',
@@ -139,7 +145,7 @@ const translations = {
     transferToWallet: 'Transfer to external wallet',
     withdrawalNote: 'Withdrawal processing may take 1-3 business days depending on your selected method.',
     note: 'Note',
-    
+
     // New Transaction
     newTransactionTitle: 'New Transaction',
     transactionTitle: 'Transaction Title',
@@ -159,7 +165,7 @@ const translations = {
     transactionSummary: 'Transaction Summary',
     feesPaidBy: 'Fees Paid By',
     confirmTransaction: 'Confirm Transaction',
-    
+
     // Transaction Details
     transactionDetails: 'Transaction Details',
     dispute: 'Dispute',
@@ -205,7 +211,7 @@ const translations = {
     statusCompleted: 'Completed',
     statusCancelled: 'Cancelled',
     statusDisputed: 'Disputed',
-    
+
     // Settings
     editProfile: 'Edit Profile',
     updatePersonalDetails: 'Update your personal details',
@@ -245,7 +251,7 @@ const translations = {
     easyTransactionsDesc: 'أكمل معاملاتك ببضع نقرات فقط. واجهتنا البديهية تجعل الشراء والبيع بسيطًا ومباشرًا.',
     trustReliability: 'الثقة والموثوقية',
     trustReliabilityDesc: 'انضم إلى آلاف المستخدمين الراضين الذين يثقون باضمنلي لمعاملاتهم الآمنة. ابدأ اليوم واختبر الفرق.',
-    
+
     // Login
     login: 'تسجيل الدخول',
     loginOrSignUp: 'سجل الدخول أو سجل اليوم',
@@ -259,7 +265,13 @@ const translations = {
     testHint: 'اختبار: استخدم "test" / "test" لتسجيل الدخول',
     name: 'الاسم',
     signUpButton: 'إنشاء حساب',
-    
+    createAccount: 'إنشاء حساب',
+    signUpTagline: 'سجل لتبدأ!',
+    firstName: 'الاسم الأول',
+    lastName: 'اسم العائلة',
+    username: 'اسم المستخدم',
+    email: 'البريد الإلكتروني',
+
     // Home
     welcome: 'مرحباً',
     goToTransactions: 'انتقل إلى المعاملات',
@@ -283,7 +295,7 @@ const translations = {
     typeMessage: 'اكتب رسالة...',
     noMessages: 'لا توجد رسائل',
     noMessagesDesc: 'ليس لديك أي رسائل بعد. ابدأ محادثة من معاملة.',
-    
+
     // Wallet
     hello: 'مرحباً',
     yourWalletBalance: 'رصيد محفظتك',
@@ -297,31 +309,31 @@ const translations = {
     withdraw: 'سحب',
     recentTransactions: 'المعاملات الأخيرة',
     seeAll: 'عرض الكل',
-    
+
     // Transactions
     transactions: 'المعاملات',
-    
+
     // Profile
     editProfile: 'تعديل الملف الشخصي',
     settings: 'الإعدادات',
     helpSupport: 'المساعدة والدعم',
     noEmail: 'لا يوجد بريد إلكتروني',
-    
+
     // Language
     language: 'اللغة',
     english: 'الإنجليزية',
     arabic: 'العربية',
     default: 'افتراضي',
-    
+
     // Tabs
     home: 'الرئيسية',
     wallet: 'المحفظة',
-    
+
     // Common
     user: 'مستخدم',
     escrowApp: 'تطبيق الضمان',
     loginFailed: 'فشل تسجيل الدخول',
-    
+
     // Dashboard
     welcomeBack: 'مرحباً بعودتك',
     totalInEscrow: 'إجمالي في الضمان',
@@ -335,7 +347,7 @@ const translations = {
     seller: 'بائع',
     role: 'الدور',
     status: 'الحالة',
-    
+
     // Wallet
     availableBalance: 'الرصيد المتاح',
     escrowBalance: 'رصيد الضمان',
@@ -347,7 +359,7 @@ const translations = {
     fundsReleased: 'تم إطلاق الأموال للمعاملة: {title}',
     fundsHeldInEscrow: 'تم الاحتفاظ بالأموال في الضمان للمعاملة: {title}',
     transaction: 'معاملة',
-    
+
     // Add Money
     enterAmount: 'أدخل المبلغ',
     quickAmount: 'مبلغ سريع',
@@ -357,7 +369,7 @@ const translations = {
     inAppWallet: 'محفظة التطبيق',
     creditCard: 'بطاقة ائتمان',
     cash: 'نقد',
-    
+
     // Withdraw
     selectWithdrawalMethod: 'اختر طريقة السحب',
     bankAccount: 'حساب بنكي',
@@ -365,7 +377,7 @@ const translations = {
     transferToWallet: 'تحويل إلى محفظة خارجية',
     withdrawalNote: 'قد تستغرق معالجة السحب من 1 إلى 3 أيام عمل حسب الطريقة المختارة.',
     note: 'ملاحظة',
-    
+
     // New Transaction
     newTransactionTitle: 'معاملة جديدة',
     transactionTitle: 'عنوان المعاملة',
@@ -385,7 +397,7 @@ const translations = {
     transactionSummary: 'ملخص المعاملة',
     feesPaidBy: 'الرسوم مدفوعة من قبل',
     confirmTransaction: 'تأكيد المعاملة',
-    
+
     // Transaction Details
     transactionDetails: 'تفاصيل المعاملة',
     dispute: 'نزاع',
@@ -433,7 +445,7 @@ const translations = {
     statusCompleted: 'مكتمل',
     statusCancelled: 'ملغي',
     statusDisputed: 'في نزاع',
-    
+
     // Settings
     editProfile: 'تعديل الملف الشخصي',
     updatePersonalDetails: 'تحديث بياناتك الشخصية',
@@ -471,7 +483,7 @@ export const LanguageProvider = ({ children }) => {
       try {
         // Try to get saved language preference
         const savedLanguage = await AsyncStorage.getItem('appLanguage');
-        
+
         if (savedLanguage && (savedLanguage === 'en' || savedLanguage === 'ar')) {
           setLanguage(savedLanguage);
           updateRTL(savedLanguage === 'ar');

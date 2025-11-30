@@ -179,8 +179,8 @@ export default function SettingsScreen() {
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" />
-      <ScrollView 
-        style={styles.scrollView} 
+      <ScrollView
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
@@ -348,7 +348,7 @@ export default function SettingsScreen() {
               <View style={[styles.settingItem, isRTL && styles.settingItemRTL]}>
                 <View style={[styles.settingItemLeft, isRTL && styles.settingItemLeftRTL]}>
                   <View style={styles.settingIcon}>
-                    <Bell size={20} color="#4b5563" /> {/* w-5 h-5 text-gray-600 from Figma */}
+                    <Bell size={20} color="#4b5563" />
                   </View>
                   <View style={styles.settingTextContainer}>
                     <Text style={[styles.settingTitle, isRTL && styles.textRTL]}>{safeT('pushNotifications', 'Push Notifications')}</Text>

@@ -1,7 +1,12 @@
+
 import React, { useState, useContext } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, StatusBar, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, StatusBar, Modal, SafeAreaView, Dimensions } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LanguageContext } from '../../src/context/LanguageContext';
+import { ShieldCheck, CreditCard, Smartphone, Heart, ChevronRight, ChevronLeft, Globe } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+
+const { width } = Dimensions.get('window');
 
 export default function GettingStartedScreen() {
   const router = useRouter();
@@ -13,22 +18,26 @@ export default function GettingStartedScreen() {
     {
       titleKey: 'whatIsWelink',
       descriptionKey: 'whatIsWelinkDesc',
-      illustration: 'security',
+      icon: ShieldCheck,
+      color: '#4F46E5', // Indigo 600
     },
     {
       titleKey: 'securePayments',
       descriptionKey: 'securePaymentsDesc',
-      illustration: 'payment',
+      icon: CreditCard,
+      color: '#0EA5E9', // Sky 500
     },
     {
       titleKey: 'easyTransactions',
       descriptionKey: 'easyTransactionsDesc',
-      illustration: 'easy',
+      icon: Smartphone,
+      color: '#10B981', // Emerald 500
     },
     {
       titleKey: 'trustReliability',
       descriptionKey: 'trustReliabilityDesc',
-      illustration: 'trust',
+      icon: Heart,
+      color: '#EC4899', // Pink 500
     },
   ];
 
@@ -52,166 +61,110 @@ export default function GettingStartedScreen() {
 
   const isLastPage = currentPage === onboardingData.length - 1;
   const isFirstPage = currentPage === 0;
+  const CurrentIcon = onboardingData[currentPage].icon;
+  const currentColor = onboardingData[currentPage].color;
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" />
-      
-      {/* Top Header */}
-      <View style={[styles.header, isRTL && styles.headerRTL]}>
-        <TouchableOpacity style={styles.languageSelector} onPress={() => setShowLanguageModal(true)}>
-          <Text style={styles.flag}>{language === 'ar' ? '🇸🇦' : '🇬🇧'}</Text>
-          <Text style={styles.languageText}>{getLanguageDisplayName(language)}</Text>
-          <Text style={styles.arrow}>▼</Text>
-        </TouchableOpacity>
-        {!isLastPage && (
-          <TouchableOpacity onPress={handleGetStarted}>
-            <Text style={styles.skipButton}>{t('skip')}</Text>
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+
+      {/* Background Elements */}
+      <View style={styles.backgroundCircle1} />
+      <View style={styles.backgroundCircle2} />
+
+      <SafeAreaView style={styles.safeArea}>
+        {/* Header */}
+        <View style={[styles.header, isRTL && styles.headerRTL]}>
+          <TouchableOpacity
+            style={styles.languageSelector}
+            onPress={() => setShowLanguageModal(true)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.languageIconContainer}>
+              <Globe size={18} color="#475569" />
+            </View>
+            <Text style={styles.languageText}>{getLanguageDisplayName(language)}</Text>
           </TouchableOpacity>
-        )}
-      </View>
 
-      {/* Central Illustration Area */}
-      <View style={styles.illustrationContainer}>
-        {onboardingData[currentPage] && onboardingData[currentPage].illustration === 'security' && (
-          <>
-            {/* Shield with Padlock */}
-            <View style={styles.shieldContainer}>
-              <View style={styles.shield}>
-                <View style={styles.padlock}>
-                  <View style={styles.padlockBody} />
-                  <View style={styles.padlockArch} />
-                </View>
-              </View>
-            </View>
-
-            {/* Two Figures Shaking Hands */}
-            <View style={styles.figuresContainer}>
-              {/* Figure 1 - Traditional Arab Attire */}
-              <View style={styles.figure1}>
-                <View style={styles.head1} />
-                <View style={styles.body1}>
-                  <View style={styles.robe1} />
-                </View>
-                <View style={styles.arm1Left} />
-                <View style={styles.arm1Right} />
-              </View>
-
-              {/* Handshake */}
-              <View style={styles.handshake}>
-                <View style={styles.handshakeCircle} />
-              </View>
-
-              {/* Figure 2 - Business Casual */}
-              <View style={styles.figure2}>
-                <View style={styles.head2} />
-                <View style={styles.body2}>
-                  <View style={styles.shirt2} />
-                  <View style={styles.tie2} />
-                </View>
-                <View style={styles.arm2Left} />
-                <View style={styles.arm2Right}>
-                  <View style={styles.briefcase} />
-                </View>
-              </View>
-            </View>
-          </>
-        )}
-
-        {onboardingData[currentPage] && onboardingData[currentPage].illustration === 'payment' && (
-          <View style={styles.paymentIllustration}>
-            <View style={styles.card}>
-              <View style={styles.cardLine} />
-              <View style={styles.cardLine} />
-              <View style={styles.cardChip} />
-              <View style={styles.cardNumber}>
-                <View style={styles.cardDot} />
-                <View style={styles.cardDot} />
-                <View style={styles.cardDot} />
-                <View style={styles.cardDot} />
-              </View>
-            </View>
-            <View style={styles.checkmark}>
-              <View style={styles.checkmarkLeft} />
-              <View style={styles.checkmarkRight} />
-            </View>
-          </View>
-        )}
-
-        {onboardingData[currentPage] && onboardingData[currentPage].illustration === 'easy' && (
-          <View style={styles.easyIllustration}>
-            <View style={styles.phone}>
-              <View style={styles.phoneScreen}>
-                <View style={styles.phoneIcon1} />
-                <View style={styles.phoneIcon2} />
-                <View style={styles.phoneIcon3} />
-              </View>
-            </View>
-            <View style={styles.arrowRight}>
-              <View style={styles.arrowLine} />
-              <View style={styles.arrowHead} />
-            </View>
-          </View>
-        )}
-
-        {onboardingData[currentPage] && onboardingData[currentPage].illustration === 'trust' && (
-          <View style={styles.trustIllustration}>
-            <Text style={styles.star1}>⭐</Text>
-            <Text style={styles.star2}>⭐</Text>
-            <Text style={styles.star3}>⭐</Text>
-            <Text style={styles.star4}>⭐</Text>
-            <Text style={styles.star5}>⭐</Text>
-            <Text style={styles.heart}>❤️</Text>
-          </View>
-        )}
-
-        {/* Decorative Waves */}
-        <View style={styles.wave1} />
-        <View style={styles.wave2} />
-        <View style={styles.wave3} />
-      </View>
-
-      {/* Bottom Content Section */}
-      <View style={[styles.contentSection, isRTL && styles.contentSectionRTL]}>
-        {onboardingData[currentPage] && (
-          <>
-            <Text style={[styles.title, isRTL && styles.titleRTL]}>{t(onboardingData[currentPage].titleKey)}</Text>
-            <Text style={[styles.description, isRTL && styles.descriptionRTL]}>{t(onboardingData[currentPage].descriptionKey)}</Text>
-          </>
-        )}
-
-        {/* Pagination Dots */}
-        <View style={styles.pagination}>
-          {onboardingData.map((_, index) => (
-            <View
-              key={index}
-              style={[
-                styles.dot,
-                index === currentPage && styles.dotActive,
-              ]}
-            />
-          ))}
-        </View>
-
-        {/* Navigation Buttons */}
-        <View style={[styles.navigationButtons, isRTL && styles.navigationButtonsRTL]}>
-          {!isFirstPage && (
-            <TouchableOpacity style={styles.backButton} onPress={handlePrevious}>
-              <Text style={styles.backButtonText}>{isRTL ? '›' : '‹'}</Text>
+          {!isLastPage && (
+            <TouchableOpacity onPress={handleGetStarted} activeOpacity={0.7}>
+              <Text style={styles.skipButton}>{t('skip')}</Text>
             </TouchableOpacity>
           )}
-          <TouchableOpacity 
-            style={[styles.getStartedButton, !isFirstPage && styles.getStartedButtonWithBack]} 
+        </View>
+
+        {/* Main Content */}
+        <View style={styles.contentContainer}>
+          {/* Illustration Area */}
+          <View style={styles.illustrationContainer}>
+            <View style={[styles.iconCircle, { shadowColor: currentColor }]}>
+              <LinearGradient
+                colors={[currentColor, '#ffffff']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={[styles.iconBackground, { opacity: 0.1 }]}
+              />
+              <CurrentIcon size={80} color={currentColor} strokeWidth={1.5} />
+            </View>
+          </View>
+
+          {/* Text Content */}
+          <View style={styles.textContainer}>
+            <Text style={[styles.title, isRTL && styles.textRTL]}>
+              {t(onboardingData[currentPage].titleKey)}
+            </Text>
+            <Text style={[styles.description, isRTL && styles.textRTL]}>
+              {t(onboardingData[currentPage].descriptionKey)}
+            </Text>
+          </View>
+
+          {/* Pagination */}
+          <View style={styles.paginationContainer}>
+            {onboardingData.map((_, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.dot,
+                  index === currentPage && styles.dotActive,
+                  index === currentPage && { backgroundColor: currentColor, width: 24 }
+                ]}
+              />
+            ))}
+          </View>
+        </View>
+
+        {/* Footer Navigation */}
+        <View style={[styles.footer, isRTL && styles.footerRTL]}>
+          <View style={styles.navButtonContainer}>
+            {!isFirstPage ? (
+              <TouchableOpacity
+                style={styles.backButton}
+                onPress={handlePrevious}
+                activeOpacity={0.7}
+              >
+                {isRTL ? <ChevronRight size={24} color="#64748b" /> : <ChevronLeft size={24} color="#64748b" />}
+              </TouchableOpacity>
+            ) : (
+              <View style={styles.backButtonPlaceholder} />
+            )}
+          </View>
+
+          <TouchableOpacity
+            style={[styles.nextButton, { backgroundColor: currentColor }]}
             onPress={handleNext}
+            activeOpacity={0.8}
           >
-            <Text style={styles.getStartedText}>
+            <Text style={styles.nextButtonText}>
               {isLastPage ? t('getStarted') : t('next')}
             </Text>
+            {!isLastPage && (
+              isRTL ? <ChevronLeft size={20} color="#ffffff" /> : <ChevronRight size={20} color="#ffffff" />
+            )}
           </TouchableOpacity>
         </View>
-      </View>
+      </SafeAreaView>
 
-      {/* Language Selection Modal */}
+      {/* Language Modal */}
       <Modal
         visible={showLanguageModal}
         transparent={true}
@@ -223,37 +176,38 @@ export default function GettingStartedScreen() {
           activeOpacity={1}
           onPress={() => setShowLanguageModal(false)}
         >
-          <TouchableOpacity
-            style={styles.modalContent}
-            activeOpacity={1}
-            onPress={(e) => e.stopPropagation()}
-          >
+          <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>{t('language')}</Text>
-            <TouchableOpacity
-              style={[styles.languageOption, language === 'en' && styles.languageOptionActive]}
-              onPress={() => {
-                changeLanguage('en');
-                setShowLanguageModal(false);
-              }}
-            >
-              <Text style={styles.flag}>🇬🇧</Text>
-              <Text style={[styles.languageOptionText, language === 'en' && styles.languageOptionTextActive]}>
-                {t('english')}
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.languageOption, language === 'ar' && styles.languageOptionActive]}
-              onPress={() => {
-                changeLanguage('ar');
-                setShowLanguageModal(false);
-              }}
-            >
-              <Text style={styles.flag}>🇸🇦</Text>
-              <Text style={[styles.languageOptionText, language === 'ar' && styles.languageOptionTextActive]}>
-                {t('arabic')}
-              </Text>
-            </TouchableOpacity>
-          </TouchableOpacity>
+            <View style={styles.languageList}>
+              <TouchableOpacity
+                style={[styles.languageOption, language === 'en' && styles.languageOptionActive]}
+                onPress={() => {
+                  changeLanguage('en');
+                  setShowLanguageModal(false);
+                }}
+              >
+                <Text style={styles.flag}>🇬🇧</Text>
+                <Text style={[styles.languageOptionText, language === 'en' && styles.languageOptionTextActive]}>
+                  {t('english')}
+                </Text>
+                {language === 'en' && <View style={styles.activeIndicator} />}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.languageOption, language === 'ar' && styles.languageOptionActive]}
+                onPress={() => {
+                  changeLanguage('ar');
+                  setShowLanguageModal(false);
+                }}
+              >
+                <Text style={styles.flag}>🇸🇦</Text>
+                <Text style={[styles.languageOptionText, language === 'ar' && styles.languageOptionTextActive]}>
+                  {t('arabic')}
+                </Text>
+                {language === 'ar' && <View style={styles.activeIndicator} />}
+              </TouchableOpacity>
+            </View>
+          </View>
         </TouchableOpacity>
       </Modal>
     </View>
@@ -265,13 +219,36 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#ffffff',
   },
+  safeArea: {
+    flex: 1,
+  },
+  backgroundCircle1: {
+    position: 'absolute',
+    top: -100,
+    right: -100,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: '#F1F5F9',
+    opacity: 0.5,
+  },
+  backgroundCircle2: {
+    position: 'absolute',
+    bottom: -50,
+    left: -50,
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: '#F8FAFC',
+    opacity: 0.8,
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingTop: 60,
-    paddingBottom: 20,
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    height: 60,
   },
   headerRTL: {
     flexDirection: 'row-reverse',
@@ -279,608 +256,187 @@ const styles = StyleSheet.create({
   languageSelector: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    backgroundColor: '#F1F5F9',
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    gap: 8,
   },
-  flag: {
-    fontSize: 20,
+  languageIconContainer: {
+    width: 20,
+    alignItems: 'center',
   },
   languageText: {
     fontSize: 14,
-    color: '#0f172a',
-    fontWeight: '500',
-  },
-  arrow: {
-    fontSize: 10,
-    color: '#64748b',
+    color: '#334155',
+    fontWeight: '600',
   },
   skipButton: {
-    fontSize: 16,
-    color: '#0f172a',
+    fontSize: 15,
+    color: '#64748b',
     fontWeight: '500',
   },
-  logoContainer: {
-    alignItems: 'center',
-    marginTop: 20,
-    marginBottom: 30,
-  },
-  logoCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#ffffff',
-    borderWidth: 2,
-    borderColor: '#e5e7eb',
+  contentContainer: {
+    flex: 1,
     justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
-    elevation: 3,
-  },
-  logoIcon: {
-    width: 50,
-    height: 50,
-    position: 'relative',
-  },
-  logoDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    position: 'absolute',
+    paddingHorizontal: 32,
   },
   illustrationContainer: {
-    flex: 1,
-    backgroundColor: '#1e40af',
-    position: 'relative',
-    overflow: 'hidden',
-    marginHorizontal: 20,
-    borderRadius: 20,
-    marginBottom: 20,
+    alignItems: 'center',
+    marginBottom: 48,
   },
-  shieldContainer: {
-    position: 'absolute',
-    left: 30,
-    top: 60,
-    zIndex: 2,
-  },
-  shield: {
-    width: 100,
-    height: 120,
-    backgroundColor: '#93c5fd',
-    borderRadius: 50,
-    borderWidth: 4,
-    borderColor: '#1e3a8a',
+  iconCircle: {
+    width: 160,
+    height: 160,
+    borderRadius: 80,
     justifyContent: 'center',
     alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  padlock: {
-    width: 40,
-    height: 40,
     position: 'relative',
-  },
-  padlockBody: {
-    width: 30,
-    height: 25,
-    backgroundColor: '#1e3a8a',
-    borderRadius: 4,
-    position: 'absolute',
-    bottom: 0,
-    left: 5,
-  },
-  padlockArch: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 3,
-    borderColor: '#1e3a8a',
-    borderBottomWidth: 0,
-    position: 'absolute',
-    top: 0,
-    left: 5,
-  },
-  figuresContainer: {
-    position: 'absolute',
-    right: 20,
-    top: 40,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    gap: 10,
-    zIndex: 1,
-  },
-  figure1: {
-    width: 60,
-    height: 140,
-    position: 'relative',
-  },
-  head1: {
-    width: 35,
-    height: 35,
-    borderRadius: 17.5,
-    backgroundColor: '#fbbf24',
-    borderWidth: 2,
-    borderColor: '#78350f',
-    position: 'absolute',
-    top: 0,
-    left: 12.5,
-  },
-  body1: {
-    width: 50,
-    height: 100,
-    position: 'absolute',
-    top: 30,
-    left: 5,
-  },
-  robe1: {
-    width: 50,
-    height: 100,
     backgroundColor: '#ffffff',
-    borderRadius: 25,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 10,
   },
-  arm1Left: {
-    width: 12,
-    height: 40,
-    backgroundColor: '#fbbf24',
-    borderRadius: 6,
+  iconBackground: {
     position: 'absolute',
-    top: 40,
-    left: -5,
-    transform: [{ rotate: '-20deg' }],
+    width: '100%',
+    height: '100%',
+    borderRadius: 80,
   },
-  arm1Right: {
-    width: 12,
-    height: 50,
-    backgroundColor: '#fbbf24',
-    borderRadius: 6,
-    position: 'absolute',
-    top: 35,
-    right: -5,
-    transform: [{ rotate: '15deg' }],
-  },
-  handshake: {
-    width: 30,
-    height: 30,
-    position: 'absolute',
-    bottom: 60,
-    left: '50%',
-    marginLeft: -15,
-    zIndex: 3,
-  },
-  handshakeCircle: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    backgroundColor: '#fbbf24',
-    borderWidth: 2,
-    borderColor: '#78350f',
-  },
-  figure2: {
-    width: 60,
-    height: 140,
-    position: 'relative',
-  },
-  head2: {
-    width: 35,
-    height: 35,
-    borderRadius: 17.5,
-    backgroundColor: '#fbbf24',
-    borderWidth: 2,
-    borderColor: '#78350f',
-    position: 'absolute',
-    top: 0,
-    left: 12.5,
-  },
-  body2: {
-    width: 50,
-    height: 100,
-    position: 'absolute',
-    top: 30,
-    left: 5,
-  },
-  shirt2: {
-    width: 50,
-    height: 80,
-    backgroundColor: '#ffffff',
-    borderRadius: 25,
-    borderBottomLeftRadius: 0,
-    borderBottomRightRadius: 0,
-  },
-  tie2: {
-    width: 8,
-    height: 60,
-    backgroundColor: '#1e3a8a',
-    position: 'absolute',
-    top: 10,
-    left: 21,
-    borderRadius: 4,
-  },
-  arm2Left: {
-    width: 12,
-    height: 50,
-    backgroundColor: '#fbbf24',
-    borderRadius: 6,
-    position: 'absolute',
-    top: 35,
-    left: -5,
-    transform: [{ rotate: '-15deg' }],
-  },
-  arm2Right: {
-    width: 12,
-    height: 40,
-    backgroundColor: '#fbbf24',
-    borderRadius: 6,
-    position: 'absolute',
-    top: 40,
-    right: -5,
-    transform: [{ rotate: '20deg' }],
-  },
-  briefcase: {
-    width: 20,
-    height: 25,
-    backgroundColor: '#92400e',
-    borderRadius: 3,
-    position: 'absolute',
-    top: 45,
-    right: -15,
-    borderWidth: 2,
-    borderColor: '#78350f',
-  },
-  wave1: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    height: 60,
-    backgroundColor: '#3b82f6',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    opacity: 0.6,
-  },
-  wave2: {
-    position: 'absolute',
-    bottom: 20,
-    left: 0,
-    right: 0,
-    height: 40,
-    backgroundColor: '#60a5fa',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    opacity: 0.5,
-  },
-  wave3: {
-    position: 'absolute',
-    bottom: 40,
-    left: 0,
-    right: 0,
-    height: 30,
-    backgroundColor: '#93c5fd',
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
-    opacity: 0.4,
-  },
-  contentSection: {
-    paddingHorizontal: 20,
-    paddingBottom: 40,
-  },
-  contentSectionRTL: {
-    direction: 'rtl',
+  textContainer: {
+    marginBottom: 40,
   },
   title: {
     fontSize: 28,
-    fontWeight: 'bold',
+    fontWeight: '800',
     color: '#0f172a',
     marginBottom: 16,
     textAlign: 'center',
-  },
-  titleRTL: {
-    textAlign: 'center',
+    lineHeight: 36,
   },
   description: {
     fontSize: 16,
     color: '#64748b',
-    lineHeight: 24,
-    textAlign: 'center',
-    marginBottom: 30,
-  },
-  descriptionRTL: {
+    lineHeight: 26,
     textAlign: 'center',
   },
-  pagination: {
+  textRTL: {
+    textAlign: 'center', // Keep centered for onboarding
+  },
+  paginationContainer: {
     flexDirection: 'row',
     justifyContent: 'center',
-    alignItems: 'center',
     gap: 8,
-    marginBottom: 30,
   },
   dot: {
     width: 8,
     height: 8,
     borderRadius: 4,
-    backgroundColor: '#cbd5e1',
+    backgroundColor: '#E2E8F0',
   },
   dotActive: {
-    width: 24,
-    backgroundColor: '#1e40af',
+    // Color and width set dynamically
   },
-  navigationButtons: {
+  footer: {
     flexDirection: 'row',
-    gap: 12,
+    justifyContent: 'space-between',
     alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingBottom: 40,
+    paddingTop: 20,
   },
-  navigationButtonsRTL: {
+  footerRTL: {
     flexDirection: 'row-reverse',
+  },
+  navButtonContainer: {
+    width: 60,
+    alignItems: 'flex-start',
   },
   backButton: {
     width: 48,
     height: 48,
-    borderRadius: 12,
-    backgroundColor: '#f1f5f9',
+    borderRadius: 24,
+    backgroundColor: '#F8FAFC',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#e2e8f0',
+    borderColor: '#E2E8F0',
   },
-  backButtonText: {
-    fontSize: 24,
-    color: '#1e40af',
-    fontWeight: 'bold',
+  backButtonPlaceholder: {
+    width: 48,
+    height: 48,
   },
-  getStartedButton: {
-    flex: 1,
-    backgroundColor: '#1e40af',
-    paddingVertical: 16,
-    borderRadius: 12,
+  nextButton: {
+    flexDirection: 'row',
     alignItems: 'center',
-    shadowColor: '#1e40af',
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 30,
+    shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.2,
     shadowRadius: 8,
-    elevation: 5,
+    elevation: 4,
+    gap: 8,
   },
-  getStartedButtonWithBack: {
-    flex: 1,
-  },
-  getStartedText: {
+  nextButtonText: {
     color: '#ffffff',
     fontSize: 16,
-    fontWeight: 'bold',
-    letterSpacing: 1,
+    fontWeight: '700',
   },
-  // Payment Illustration Styles
-  paymentIllustration: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
-  },
-  card: {
-    width: 200,
-    height: 120,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 16,
-    position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  cardLine: {
-    height: 4,
-    backgroundColor: '#e5e7eb',
-    borderRadius: 2,
-    marginBottom: 12,
-  },
-  cardChip: {
-    width: 40,
-    height: 30,
-    backgroundColor: '#fbbf24',
-    borderRadius: 4,
-    marginBottom: 12,
-  },
-  cardNumber: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 8,
-  },
-  cardDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#1e3a8a',
-  },
-  checkmark: {
-    position: 'absolute',
-    right: 40,
-    top: 60,
-    width: 60,
-    height: 60,
-  },
-  checkmarkLeft: {
-    width: 20,
-    height: 4,
-    backgroundColor: '#22c55e',
-    transform: [{ rotate: '45deg' }],
-    position: 'absolute',
-    left: 10,
-    top: 30,
-  },
-  checkmarkRight: {
-    width: 30,
-    height: 4,
-    backgroundColor: '#22c55e',
-    transform: [{ rotate: '-45deg' }],
-    position: 'absolute',
-    left: 20,
-    top: 30,
-  },
-  // Easy Illustration Styles
-  easyIllustration: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 20,
-  },
-  phone: {
-    width: 120,
-    height: 200,
-    backgroundColor: '#1e3a8a',
-    borderRadius: 20,
-    padding: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  phoneScreen: {
-    flex: 1,
-    backgroundColor: '#ffffff',
-    borderRadius: 12,
-    padding: 12,
-    justifyContent: 'space-around',
-    alignItems: 'center',
-  },
-  phoneIcon1: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: '#3b82f6',
-  },
-  phoneIcon2: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: '#22c55e',
-  },
-  phoneIcon3: {
-    width: 40,
-    height: 40,
-    borderRadius: 8,
-    backgroundColor: '#ef4444',
-  },
-  arrowRight: {
-    width: 80,
-    height: 4,
-    position: 'relative',
-  },
-  arrowLine: {
-    width: 60,
-    height: 4,
-    backgroundColor: '#ffffff',
-    borderRadius: 2,
-  },
-  arrowHead: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 20,
-    borderLeftColor: '#ffffff',
-    borderTopWidth: 8,
-    borderTopColor: 'transparent',
-    borderBottomWidth: 8,
-    borderBottomColor: 'transparent',
-    position: 'absolute',
-    right: 0,
-    top: -6,
-  },
-  // Trust Illustration Styles
-  trustIllustration: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    position: 'relative',
-  },
-  star1: {
-    position: 'absolute',
-    top: 40,
-    left: 60,
-    fontSize: 40,
-  },
-  star2: {
-    position: 'absolute',
-    top: 80,
-    right: 70,
-    fontSize: 35,
-  },
-  star3: {
-    position: 'absolute',
-    bottom: 100,
-    left: 50,
-    fontSize: 45,
-  },
-  star4: {
-    position: 'absolute',
-    bottom: 80,
-    right: 50,
-    fontSize: 38,
-  },
-  star5: {
-    position: 'absolute',
-    top: 120,
-    left: '50%',
-    marginLeft: -20,
-    fontSize: 42,
-  },
-  heart: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    marginLeft: -25,
-    marginTop: -25,
-    fontSize: 50,
-  },
-  // Language Modal Styles
+  // Modal Styles
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
+    padding: 20,
   },
   modalContent: {
+    width: '100%',
+    maxWidth: 320,
     backgroundColor: '#ffffff',
-    borderRadius: 20,
+    borderRadius: 24,
     padding: 24,
-    width: '80%',
-    maxWidth: 300,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
   },
   modalTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: '#0f172a',
     marginBottom: 20,
     textAlign: 'center',
+  },
+  languageList: {
+    gap: 12,
   },
   languageOption: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
-    borderRadius: 12,
-    marginBottom: 12,
-    backgroundColor: '#f8fafc',
-    borderWidth: 2,
-    borderColor: 'transparent',
+    backgroundColor: '#F8FAFC',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#E2E8F0',
   },
   languageOptionActive: {
-    backgroundColor: '#eff6ff',
-    borderColor: '#1e40af',
+    backgroundColor: '#EFF6FF',
+    borderColor: '#3B82F6',
+  },
+  flag: {
+    fontSize: 24,
+    marginRight: 12,
   },
   languageOptionText: {
     fontSize: 16,
-    color: '#0f172a',
-    marginLeft: 12,
+    color: '#334155',
     fontWeight: '500',
+    flex: 1,
   },
   languageOptionTextActive: {
     color: '#1e40af',
