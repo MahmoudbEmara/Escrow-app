@@ -15,7 +15,10 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.anonymous.escrowapp"
+      "bundleIdentifier": "com.anonymous.escrowapp",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -29,7 +32,11 @@
     ],
     "extra": {
       "supabaseUrl": "https://rmpbbesldyrbxbwgdxxz.supabase.co",
-      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJtcGJiZXNsZHlyYnhid2dkeHh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2NjU2MTQsImV4cCI6MjA3OTI0MTYxNH0.FO4_8Lcx0LO-WPOMIsGlFGeLBvF0MxTVu3kZg_k9Cbc"
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJtcGJiZXNsZHlyYnhid2dkeHh6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM2NjU2MTQsImV4cCI6MjA3OTI0MTYxNH0.FO4_8Lcx0LO-WPOMIsGlFGeLBvF0MxTVu3kZg_k9Cbc",
+      "router": {},
+      "eas": {
+        "projectId": "54c3ba21-f8d2-4004-b743-37cdcb0a2809"
+      }
     }
   }
 }

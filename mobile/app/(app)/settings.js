@@ -16,8 +16,14 @@ export default function SettingsScreen() {
 
   const safeT = (key, fallback = '') => {
     try {
+      if (!t || typeof t !== 'function') {
+        return fallback || key || '';
+      }
       const result = t(key);
-      return result && typeof result === 'string' ? result : (fallback || key || '');
+      if (result && typeof result === 'string') {
+        return result;
+      }
+      return fallback || key || '';
     } catch (e) {
       return fallback || key || '';
     }
@@ -25,8 +31,17 @@ export default function SettingsScreen() {
 
   const safeGetLanguageDisplayName = (lang) => {
     try {
+      if (!getLanguageDisplayName || typeof getLanguageDisplayName !== 'function') {
+        return lang === 'ar' ? 'Arabic' : 'English';
+      }
+      if (!lang || (lang !== 'en' && lang !== 'ar')) {
+        return 'English';
+      }
       const result = getLanguageDisplayName(lang);
-      return result && typeof result === 'string' ? result : (lang === 'ar' ? 'Arabic' : 'English');
+      if (result && typeof result === 'string') {
+        return result;
+      }
+      return lang === 'ar' ? 'Arabic' : 'English';
     } catch (e) {
       return lang === 'ar' ? 'Arabic' : 'English';
     }
@@ -150,12 +165,12 @@ export default function SettingsScreen() {
     );
   };
 
-  if (languageLoading) {
+  if (languageLoading || !t || typeof t !== 'function' || !getLanguageDisplayName || typeof getLanguageDisplayName !== 'function') {
     return (
       <View style={styles.container}>
         <StatusBar barStyle="dark-content" />
         <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-          <Text>Loading...</Text>
+          <ActivityIndicator size="large" color="#2563eb" />
         </View>
       </View>
     );
@@ -261,9 +276,10 @@ export default function SettingsScreen() {
               <SettingItem
                 Icon={Bell}
                 title={safeT('language', 'Language')}
-                subtitle={`${safeT('current', 'Current')}: ${safeGetLanguageDisplayName(language)}`}
+                subtitle={`${safeT('current', 'Current')}: ${safeGetLanguageDisplayName(language || 'en')}`}
                 onPress={() => {
-                  const newLanguage = language === 'en' ? 'ar' : 'en';
+                  const currentLang = language || 'en';
+                  const newLanguage = currentLang === 'en' ? 'ar' : 'en';
                   changeLanguage(newLanguage);
                   Alert.alert(
                     safeT('language', 'Language'),
@@ -273,7 +289,7 @@ export default function SettingsScreen() {
                 }}
                 rightComponent={
                   <View style={styles.languageBadge}>
-                    <Text style={styles.languageText}>{safeGetLanguageDisplayName(language)}</Text>
+                    <Text style={styles.languageText}>{safeGetLanguageDisplayName(language || 'en')}</Text>
                   </View>
                 }
               />
